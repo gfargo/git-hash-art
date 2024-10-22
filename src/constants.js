@@ -1,4 +1,4 @@
-export const TEST_CASES = {
+export const PRESETS = {
   // Standard sizes with different hashes
   'react': {
     hash: '46192e59d42f741c761cbea79462a8b3815dd905',
@@ -10,6 +10,24 @@ export const TEST_CASES = {
     width: 1024,
     height: 1024,
     gridSize: 6  // Higher density grid
+  },
+  "testing123": {
+    hash: 'a-random-string-that-is-32-characters-long',
+    width: 2048,
+    height: 2048,
+    gridSize: 12  // Higher density
+  },
+  "testing3": {
+    hash: '43b45692efc234082f6990fa0c62b2ec1246cf17',
+    width: 2048,
+    height: 2048,
+    gridSize: 12  // Higher density
+  },
+  "testing3": {
+    hash: 'bc4c1aeb8d0bee786d980762064f3526c8ee8c03',
+    width: 2048,
+    height: 2048,
+    gridSize: 16  // Higher density
   },
   // Wide format variations
   'banner': {

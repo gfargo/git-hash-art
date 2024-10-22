@@ -1,15 +1,22 @@
 {
-  "name": "git-hash-art-generator",
+  "name": "git-hash-art",
   "version": "0.0.1",
   "author": "gfargo <ghfargo@gmail.com>",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node dist/main.js",
+    "watch": "parcel watch",
+    "build": "parcel build"
   },
-  "main": "src/index.js",
+  "source": "src/index.js",
+  "main": "dist/main.js",
+  "module": "dist/module.js",
   "license": "MIT",
   "dependencies": {
     "canvas": "^2.11.2",
     "color-scheme": "^1.0.1"
+  },
+  "devDependencies": {
+    "parcel": "^2.12.0"
   }
 }

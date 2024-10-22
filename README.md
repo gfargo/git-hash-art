@@ -1,4 +1,4 @@
-# Git Hash Art Generator
+# Git Hash Art
 
 Generate beautiful, deterministic abstract art from git commit hashes. Perfect for creating unique visual representations of your project's commits, generating placeholder images, or creating artistic wallpapers.
 
@@ -15,13 +15,13 @@ Generate beautiful, deterministic abstract art from git commit hashes. Perfect f
 ## Installation
 
 ```bash
-npm install git-hash-art-generator
+npm install git-hash-art
 ```
 
 ## Basic Usage
 
 ```javascript
-import { generateImageFromHash } from 'git-hash-art-generator';
+import { generateImageFromHash } from 'git-hash-art';
 
 // Generate art from a git hash with default settings
 const gitHash = '46192e59d42f741c761cbea79462a8b3815dd905';
