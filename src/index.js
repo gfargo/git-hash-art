@@ -111,7 +111,7 @@ export const PRESETS = {
   }
 };
 
-const OUTPUT_DIR = ".thumbs";
+const OUTPUT_DIR = "examples";
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR);
 }
