@@ -80,7 +80,7 @@ export const drawCube = (ctx, size) => {
 };
 
 // Optional: Create a shape map for easier lookup
-export const shapes = {
+export const basicShapes = {
   circle: drawCircle,
   square: drawSquare,
   triangle: drawTriangle,

@@ -1,16 +1,18 @@
 import { createCanvas } from "canvas";
-import ColorScheme from "color-scheme";
 import fs from "fs";
 import path from "path";
-import { PRESETS } from "./constants";
-import { shapes } from "./shapes";
+import { generateColorScheme } from "./lib/canvas/colors";
+import { basicShapes } from "./lib/canvas/shapes/basic";
+import { PRESETS } from "./lib/constants";
+import { getRandomFromHash } from "./lib/utils";
 
 const OUTPUT_DIR = "examples";
+
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR);
 }
 
-// Configuration type definition (for documentation)
+
 /**
  * @typedef {Object} ArtConfig
  * @property {number} width - Canvas width in pixels
@@ -23,62 +25,6 @@ if (!fs.existsSync(OUTPUT_DIR)) {
  * @property {number} [baseOpacity=0.6] - Starting opacity for first layer
  * @property {number} [opacityReduction=0.1] - How much to reduce opacity per layer
  */
-
-function gitHashToSeed(gitHash) {
-  return parseInt(gitHash.slice(0, 8), 16);
-}
-
-function getRandomFromHash(hash, index, min, max) {
-  const hexPair = hash.substr((index * 2) % hash.length, 2);
-  const decimal = parseInt(hexPair, 16);
-  return min + (decimal / 255) * (max - min);
-}
-
-function generateColorScheme(gitHash) {
-  const seed = gitHashToSeed(gitHash);
-  const scheme = new ColorScheme();
-  scheme
-    .from_hue(seed % 360)
-    .scheme("analogic")
-    .variation("soft");
-
-  let colors = scheme.colors().map((hex) => `#${hex}`);
-
-  const contrastingHue = (seed + 180) % 360;
-  const contrastingScheme = new ColorScheme();
-  contrastingScheme.from_hue(contrastingHue).scheme("mono").variation("soft");
-  colors.push(`#${contrastingScheme.colors()[0]}`);
-
-  return colors;
-}
-
-function drawShape(
-  ctx,
-  shape,
-  x,
-  y,
-  fillColor,
-  strokeColor,
-  strokeWidth,
-  size,
-  rotation
-) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate((rotation * Math.PI) / 180);
-  ctx.fillStyle = fillColor;
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = strokeWidth;
-
-  const drawFunction = shapes[shape];
-  if (drawFunction) {
-    drawFunction(ctx, size);
-  }
-
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-}
 
 /**
  * Generate an abstract art image from a git hash with custom configuration
@@ -119,7 +65,9 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  const colors = generateColorScheme(gitHash);
+  const colors = generateColorScheme(gitHash)
+  // const colorScheme = new SacredColorScheme(gitHash);
+  // const colors = colorScheme.getColorPalette('sacred');
 
   // Create a gradient background
   const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -128,17 +76,7 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  const shapes = [
-    "circle",
-    "square",
-    "triangle",
-    "hexagon",
-    "star",
-    "jacked-star",
-    "heart",
-    "diamond",
-    "cube",
-  ];
+  const shapeNames = Object.keys(basicShapes);
 
   const cellWidth = width / gridSize;
   const cellHeight = height / gridSize;
@@ -177,13 +115,13 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
       const y = gridY * cellHeight + cellOffsetY;
 
       const shape =
-        shapes[
+        shapeNames[
           Math.floor(
             getRandomFromHash(
               gitHash,
               layer * numShapes + i * 3,
               0,
-              shapes.length
+              shapeNames.length
             )
           )
         ];
@@ -221,6 +159,16 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
         size,
         rotation
       );
+      // enhanceShapeGeneration(ctx, shape, x, y, {
+      //   fillColor: colors[fillColorIndex],
+      //   strokeColor: colors[strokeColorIndex],
+      //   strokeWidth: 2 * scaleFactor,
+      //   size,
+      //   rotation,
+      //   // Optionally add pattern combinations
+      //   patterns: Math.random() > 0.7 ? PatternPresets.flowerOfLifeMandala(size) : [],
+      //   proportionType: 'GOLDEN_RATIO'
+      // });
     }
 
     // Add connecting lines scaled to canvas size
