@@ -163,8 +163,8 @@ export const drawTorus = (ctx, size) => {
 
 // Add to the existing shapes map
 export const sacredShapes = {
-  flowerOfLife: drawFlowerOfLife,
-  treeOfLife: drawTreeOfLife,
+  // flowerOfLife: drawFlowerOfLife,
+  // treeOfLife: drawTreeOfLife,
   metatronsCube: drawMetatronsCube,
   sriYantra: drawSriYantra,
   seedOfLife: drawSeedOfLife,

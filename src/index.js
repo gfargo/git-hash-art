@@ -36,14 +36,14 @@ if (!fs.existsSync(OUTPUT_DIR)) {
 function generateImageFromHash(gitHash, label = "", config = {}) {
   // Default configuration
   const defaultConfig = {
-    width: 1024,
-    height: 1024,
-    gridSize: 4,
-    layers: 5,
+    width: 2048,
+    height: 2048,
+    gridSize: 12,
+    layers: 8,
     minShapeSize: 20,
-    maxShapeSize: 360,
-    baseOpacity: 0.6,
-    opacityReduction: 0.1,
+    maxShapeSize: 600,
+    baseOpacity: 0.8,
+    opacityReduction: 0.4,
   };
 
   // Merge provided config with defaults
@@ -69,7 +69,7 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
   // const oldColors = generateColorScheme(gitHash);
   
   const colorScheme = new SacredColorScheme(gitHash);
-  const colors = colorScheme.getColorPalette("sacred");
+  const colors = colorScheme.getColorPalette("chakra");
 
   // console.log({
   //   colorScheme,
@@ -175,7 +175,7 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
         rotation,
         // Optionally add pattern combinations
         // patterns:
-        //   Math.random() > 0.7 ? PatternPresets.flowerOfLifeMandala(size) : [],
+        //   Math.random() > 0.7 ? PatternPresets.cosmicTree(size) : [],
         proportionType: "GOLDEN_RATIO",
       });
     }

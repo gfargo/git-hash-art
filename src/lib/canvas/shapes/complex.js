@@ -195,7 +195,7 @@ export const drawMerkaba = (ctx, size, config = {}) => {
 };
 
 export const complexShapes = {
-  platonicSolid: (ctx, size, type, config) =>
+  platonicSolid: (ctx, size, type = "tetrahedron", config) =>
     drawPlatonicSolid(ctx, size, type, config),
   fibonacciSpiral: (ctx, size, config) =>
     drawFibonacciSpiral(ctx, size, config),
