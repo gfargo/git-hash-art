@@ -1,3 +1,5 @@
+import { PatternCombiner } from "../utils";
+import { shapes } from "./shapes";
 import { basicShapes } from "./shapes/basic";
 
 export function drawShape(
@@ -51,7 +53,7 @@ export function enhanceShapeGeneration(ctx, shape, x, y, config) {
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
 
-  const drawFunction = sacredGeometry[shape];
+  const drawFunction = shapes[shape];
   if (drawFunction) {
     drawFunction(ctx, size);
   }

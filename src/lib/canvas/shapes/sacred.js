@@ -60,7 +60,9 @@ export const drawMetatronsCube = (ctx, size) => {
   const radius = size / 3;
   
   // Create 13 points - one center and 12 vertices of an icosahedron
-  const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
+  
+  // const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
+  
   const vertices = [
     { x: 0, y: 0 }, // Center point
     ...createCirclePoints(0, 0, radius, 6), // Inner hexagon
@@ -142,7 +144,7 @@ export const drawTorus = (ctx, size) => {
   ctx.beginPath();
   for (let i = 0; i < steps; i++) {
     const angle1 = (i / steps) * Math.PI * 2;
-    const angle2 = ((i + 1) / steps) * Math.PI * 2;
+    // const angle2 = ((i + 1) / steps) * Math.PI * 2;
     
     for (let j = 0; j < steps; j++) {
       const phi1 = (j / steps) * Math.PI * 2;

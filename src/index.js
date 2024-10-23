@@ -1,8 +1,9 @@
 import { createCanvas } from "canvas";
 import fs from "fs";
 import path from "path";
-import { generateColorScheme } from "./lib/canvas/colors";
-import { basicShapes } from "./lib/canvas/shapes/basic";
+import { SacredColorScheme } from "./lib/canvas/colors";
+import { enhanceShapeGeneration } from "./lib/canvas/draw";
+import { shapes } from "./lib/canvas/shapes";
 import { PRESETS } from "./lib/constants";
 import { getRandomFromHash } from "./lib/utils";
 
@@ -11,7 +12,6 @@ const OUTPUT_DIR = "examples";
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR);
 }
-
 
 /**
  * @typedef {Object} ArtConfig
@@ -65,18 +65,26 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  const colors = generateColorScheme(gitHash)
-  // const colorScheme = new SacredColorScheme(gitHash);
-  // const colors = colorScheme.getColorPalette('sacred');
+  
+  // const oldColors = generateColorScheme(gitHash);
+  
+  const colorScheme = new SacredColorScheme(gitHash);
+  const colors = colorScheme.getColorPalette("sacred");
+
+  // console.log({
+  //   colorScheme,
+  //   colors,
+  //   oldColors,
+  // });
 
   // Create a gradient background
   const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, colors[0]);
-  gradient.addColorStop(1, colors[1]);
+  gradient.addColorStop(0, colorScheme.baseScheme[0]);
+  gradient.addColorStop(1, colorScheme.baseScheme[1]);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  const shapeNames = Object.keys(basicShapes);
+  const shapeNames = Object.keys(shapes);
 
   const cellWidth = width / gridSize;
   const cellHeight = height / gridSize;
@@ -148,27 +156,28 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
       );
 
       ctx.globalAlpha = layerOpacity;
-      drawShape(
-        ctx,
-        shape,
-        x,
-        y,
-        colors[fillColorIndex],
-        colors[strokeColorIndex],
-        2 * scaleFactor,
-        size,
-        rotation
-      );
-      // enhanceShapeGeneration(ctx, shape, x, y, {
-      //   fillColor: colors[fillColorIndex],
-      //   strokeColor: colors[strokeColorIndex],
-      //   strokeWidth: 2 * scaleFactor,
+      // drawShape(
+      //   ctx,
+      //   shape,
+      //   x,
+      //   y,
+      //   colors[fillColorIndex],
+      //   colors[strokeColorIndex],
+      //   2 * scaleFactor,
       //   size,
-      //   rotation,
-      //   // Optionally add pattern combinations
-      //   patterns: Math.random() > 0.7 ? PatternPresets.flowerOfLifeMandala(size) : [],
-      //   proportionType: 'GOLDEN_RATIO'
-      // });
+      //   rotation
+      // );
+      enhanceShapeGeneration(ctx, shape, x, y, {
+        fillColor: colors[fillColorIndex],
+        strokeColor: colors[strokeColorIndex],
+        strokeWidth: 2 * scaleFactor,
+        size,
+        rotation,
+        // Optionally add pattern combinations
+        // patterns:
+        //   Math.random() > 0.7 ? PatternPresets.flowerOfLifeMandala(size) : [],
+        proportionType: "GOLDEN_RATIO",
+      });
     }
 
     // Add connecting lines scaled to canvas size

@@ -11,24 +11,6 @@ export const PRESETS = {
     height: 1024,
     gridSize: 6, // Higher density grid
   },
-  testing123: {
-    hash: "a-random-string-that-is-32-characters-long",
-    width: 2048,
-    height: 2048,
-    gridSize: 12, // Higher density
-  },
-  testing3: {
-    hash: "43b45692efc234082f6990fa0c62b2ec1246cf17",
-    width: 2048,
-    height: 2048,
-    gridSize: 12, // Higher density
-  },
-  testing3: {
-    hash: "bc4c1aeb8d0bee786d980762064f3526c8ee8c03",
-    width: 2048,
-    height: 2048,
-    gridSize: 16, // Higher density
-  },
   // Wide format variations
   banner: {
     hash: "d847ffd4269b22c54d6e85ad3c1892a298e961fb",
@@ -104,23 +86,6 @@ export const PRESETS = {
     shapesPerLayer: 50,
     minShapeSize: 30,
     maxShapeSize: 250,
-  },
-  // Print sizes
-  "a4-portrait": {
-    hash: "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
-    width: 2480,
-    height: 3508, // A4 at 300 DPI
-    gridSize: 8,
-    layers: 6,
-    shapesPerLayer: 45,
-  },
-  "a3-landscape": {
-    hash: "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
-    width: 4961,
-    height: 3508, // A3 at 300 DPI
-    gridSize: 12,
-    layers: 6,
-    shapesPerLayer: 60,
   },
 };
 
