@@ -39,7 +39,7 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
     width: 2048,
     height: 2048,
     gridSize: 12,
-    layers: 8,
+    layers: 2,
     minShapeSize: 20,
     maxShapeSize: 600,
     baseOpacity: 0.8,
