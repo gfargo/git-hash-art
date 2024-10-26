@@ -1,6 +1,6 @@
 {
   "name": "git-hash-art",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "author": "gfargo <ghfargo@gmail.com>",
   "type": "module",
   "scripts": {
