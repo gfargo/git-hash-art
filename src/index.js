@@ -4,7 +4,6 @@ import path from "path";
 import { SacredColorScheme } from "./lib/canvas/colors";
 import { enhanceShapeGeneration } from "./lib/canvas/draw";
 import { shapes } from "./lib/canvas/shapes";
-import { PatternPresets } from "./lib/constants";
 import { getRandomFromHash } from "./lib/utils";
 
 /**
@@ -23,11 +22,10 @@ import { getRandomFromHash } from "./lib/utils";
 /**
  * Generate an abstract art image from a git hash with custom configuration
  * @param {string} gitHash - The git hash to use as a seed
- * @param {string} [label=''] - Label for the output file
  * @param {ArtConfig} [config={}] - Configuration options
  * @returns {Buffer} PNG buffer of the generated image
  */
-function generateImageFromHash(gitHash, label = "", config = {}) {
+function generateImageFromHash(gitHash, config = {}) {
   // Default configuration
   const defaultConfig = {
     width: 2048,
@@ -214,7 +212,6 @@ function saveImageToFile(imageBuffer, outputDir, gitHash, label = "", width, hei
   return outputPath;
 }
 
-// Export the main functions
 export { generateImageFromHash, saveImageToFile };
 
 // Usage example:
@@ -222,7 +219,7 @@ export { generateImageFromHash, saveImageToFile };
 import { generateImageFromHash, saveImageToFile } from 'git-hash-art';
 
 const gitHash = '1234567890abcdef1234567890abcdef12345678';
-const imageBuffer = generateImageFromHash(gitHash, 'example', { width: 1024, height: 1024 });
+const imageBuffer = generateImageFromHash(gitHash, { width: 1024, height: 1024 });
 const savedImagePath = saveImageToFile(imageBuffer, './output', gitHash, 'example', 1024, 1024);
 console.log(`Image saved to: ${savedImagePath}`);
 */

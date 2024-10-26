@@ -25,7 +25,7 @@ import { generateImageFromHash } from 'git-hash-art';
 
 // Generate art from a git hash with default settings
 const gitHash = '46192e59d42f741c761cbea79462a8b3815dd905';
-generateImageFromHash(gitHash, 'my-artwork');
+generateImageFromHash(gitHash);
 ```
 
 ## Advanced Usage
@@ -44,7 +44,7 @@ const config = {
   opacityReduction: 0.1
 };
 
-generateImageFromHash(gitHash, 'custom-artwork', config);
+generateImageFromHash(gitHash, config);
 ```
 
 ## Configuration Options
@@ -69,10 +69,10 @@ The package includes several preset configurations for common use cases:
 import { PRESETS } from 'git-hash-art-generator';
 
 // Generate an Instagram-sized image
-generateImageFromHash(gitHash, 'instagram', PRESETS['instagram'].config);
+generateImageFromHash(gitHash, PRESETS['instagram'].config);
 
 // Generate a mobile wallpaper
-generateImageFromHash(gitHash, 'phone', PRESETS['phone-wallpaper'].config);
+generateImageFromHash(gitHash, PRESETS['phone-wallpaper'].config);
 ```
 
 Available presets include:
