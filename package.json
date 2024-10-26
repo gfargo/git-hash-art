@@ -8,6 +8,8 @@
     "build": "parcel build",
     "build:examples": "node bin/generateExamples.js",
     "lint": "eslint src",
+    "release": "release-it",
+    "test:publish": "yarn lint && npm publish --dry-run",
     "prepublishOnly": "yarn build"
   },
   "source": "src/index.js",
@@ -18,7 +20,8 @@
     "@eslint/eslintrc": "^3.1.0",
     "@eslint/js": "^9.13.0",
     "canvas": "^2.11.2",
-    "color-scheme": "^1.0.1"
+    "color-scheme": "^1.0.1",
+    "release-it": "^17.10.0"
   },
   "devDependencies": {
     "eslint": "^9.13.0",
