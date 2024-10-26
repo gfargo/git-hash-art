@@ -160,3 +160,6 @@ dist
 
 # coco config
 .coco.config.json
+
+# examples
+examples/
