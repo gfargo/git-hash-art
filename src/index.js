@@ -4,14 +4,8 @@ import path from "path";
 import { SacredColorScheme } from "./lib/canvas/colors";
 import { enhanceShapeGeneration } from "./lib/canvas/draw";
 import { shapes } from "./lib/canvas/shapes";
-import { PRESETS } from "./lib/constants";
+import { PatternPresets } from "./lib/constants";
 import { getRandomFromHash } from "./lib/utils";
-
-const OUTPUT_DIR = "examples";
-
-if (!fs.existsSync(OUTPUT_DIR)) {
-  fs.mkdirSync(OUTPUT_DIR);
-}
 
 /**
  * @typedef {Object} ArtConfig
@@ -31,7 +25,7 @@ if (!fs.existsSync(OUTPUT_DIR)) {
  * @param {string} gitHash - The git hash to use as a seed
  * @param {string} [label=''] - Label for the output file
  * @param {ArtConfig} [config={}] - Configuration options
- * @returns {string} Path to the generated image
+ * @returns {Buffer} PNG buffer of the generated image
  */
 function generateImageFromHash(gitHash, label = "", config = {}) {
   // Default configuration
@@ -66,16 +60,8 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
   
-  // const oldColors = generateColorScheme(gitHash);
-  
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColorPalette("chakra");
-
-  // console.log({
-  //   colorScheme,
-  //   colors,
-  //   oldColors,
-  // });
 
   // Create a gradient background
   const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -170,7 +156,7 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
       enhanceShapeGeneration(ctx, shape, x, y, {
         fillColor: colors[fillColorIndex],
         strokeColor: colors[strokeColorIndex],
-        strokeWidth: 2 * scaleFactor,
+        strokeWidth: 1.5 * scaleFactor,
         size,
         rotation,
         // Optionally add pattern combinations
@@ -199,52 +185,45 @@ function generateImageFromHash(gitHash, label = "", config = {}) {
     }
   }
 
+  return canvas.toBuffer("image/png");
+}
+
+/**
+ * Save the generated image to a file
+ * @param {Buffer} imageBuffer - The PNG buffer of the generated image
+ * @param {string} outputDir - The directory to save the image
+ * @param {string} gitHash - The git hash used to generate the image
+ * @param {string} [label=''] - Label for the output file
+ * @param {number} width - The width of the generated image
+ * @param {number} height - The height of the generated image
+ * @returns {string} Path to the saved image
+ */
+function saveImageToFile(imageBuffer, outputDir, gitHash, label = "", width, height) {
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
   const filename = label
     ? `${label}-${width}x${height}-${gitHash.slice(0, 8)}.png`
     : `${gitHash.slice(0, 8)}-${width}x${height}.png`;
 
-  const outputPath = path.join(OUTPUT_DIR, filename);
-  const buffer = canvas.toBuffer("image/png");
-  fs.writeFileSync(outputPath, buffer);
+  const outputPath = path.join(outputDir, filename);
+  fs.writeFileSync(outputPath, imageBuffer);
   console.log(`Generated: ${outputPath}`);
 
   return outputPath;
 }
 
-function generateTestCases() {
-  console.log("Generating test cases...");
-  console.log("Output directory:", path.resolve(OUTPUT_DIR));
+// Export the main functions
+export { generateImageFromHash, saveImageToFile };
 
-  const results = [];
-  for (const [label, testCase] of Object.entries(PRESETS)) {
-    try {
-      const outputPath = generateImageFromHash(testCase.hash, label, {
-        width: testCase.width,
-        height: testCase.height,
-      });
-      results.push({ label, hash: testCase.hash, outputPath, success: true });
-    } catch (error) {
-      console.error(`Failed to generate image for ${label}:`, error);
-      results.push({
-        label,
-        hash: testCase.hash,
-        success: false,
-        error: error.message,
-      });
-    }
-  }
+// Usage example:
+/*
+import { generateImageFromHash, saveImageToFile } from 'git-hash-art';
 
-  console.log("\nGeneration Summary:");
-  console.log("------------------");
-  results.forEach(({ label, success, outputPath, error }) => {
-    if (success) {
-      console.log(`✓ ${label}: ${outputPath}`);
-    } else {
-      console.log(`✗ ${label}: Failed - ${error}`);
-    }
-  });
-}
+const gitHash = '1234567890abcdef1234567890abcdef12345678';
+const imageBuffer = generateImageFromHash(gitHash, 'example', { width: 1024, height: 1024 });
+const savedImagePath = saveImageToFile(imageBuffer, './output', gitHash, 'example', 1024, 1024);
+console.log(`Image saved to: ${savedImagePath}`);
+*/
 
-generateTestCases();
-
-export { generateImageFromHash, generateTestCases };

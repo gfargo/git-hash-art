@@ -1,6 +1,5 @@
 import { PatternCombiner } from "../utils";
 import { shapes } from "./shapes";
-import { basicShapes } from "./shapes/basic";
 
 export function drawShape(
   ctx,
@@ -20,7 +19,7 @@ export function drawShape(
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
 
-  const drawFunction = basicShapes[shape];
+  const drawFunction = shapes[shape];
   if (drawFunction) {
     drawFunction(ctx, size);
   }

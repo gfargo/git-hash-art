@@ -1,4 +1,4 @@
-# Git Hash Art
+# git-hash-art
 
 Generate beautiful, deterministic abstract art from git commit hashes. Perfect for creating unique visual representations of your project's commits, generating placeholder images, or creating artistic wallpapers.
 

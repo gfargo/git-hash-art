@@ -119,7 +119,7 @@ export const Proportions = {
 // Helper for creating common sacred geometry combinations
 export const PatternPresets = {
   flowerOfLifeMandala: (size) => [
-    { type: "flowerOfLife", config: { size } },
+    // { type: "flowerOfLife", config: { size } },
     { type: "merkaba", config: { size: size * 0.8 } },
     { type: "sriYantra", config: { size: size * 0.5 } },
   ],
@@ -131,7 +131,7 @@ export const PatternPresets = {
   ],
 
   cosmicTree: (size) => [
-    { type: "treeOfLife", config: { size } },
+    // { type: "treeOfLife", config: { size } },
     { type: "fibonacciSpiral", config: { size: size * 0.9 } },
     { type: "metatronsCube", config: { size: size * 0.7 } },
   ],
