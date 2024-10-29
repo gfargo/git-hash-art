@@ -7,24 +7,30 @@
     "prebuild": "rm -rf .parcel-cache",
     "build": "parcel build",
     "build:examples": "node bin/generateExamples.js",
-    "lint": "eslint src",
+    "lint": "eslint src  --fix",
+    "lint:check": "eslint src",
+    "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css,md}'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css,md}'",
     "release": "release-it",
     "test:publish": "yarn lint && npm publish --dry-run",
     "prepublishOnly": "yarn build"
   },
-  "source": "src/index.js",
+  "source": "src/index.ts",
   "main": "dist/main.js",
   "module": "dist/module.js",
+  "types": "dist/types.d.ts",
   "license": "MIT",
   "dependencies": {
-    "@eslint/eslintrc": "^3.1.0",
-    "@eslint/js": "^9.13.0",
     "canvas": "^2.11.2",
-    "color-scheme": "^1.0.1",
-    "release-it": "^17.10.0"
+    "color-scheme": "^1.0.1"
   },
   "devDependencies": {
-    "eslint": "^9.13.0",
-    "parcel": "^2.12.0"
+    "@parcel/packager-ts": "^2.12.0",
+    "@parcel/transformer-typescript-types": "^2.12.0",
+    "@types/node": "^22.8.2",
+    "parcel": "^2.12.0",
+    "prettier": "^3.3.3",
+    "release-it": "^17.10.0",
+    "typescript": "^5.6.3"
   }
 }
