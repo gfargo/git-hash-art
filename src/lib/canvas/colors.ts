@@ -1,6 +1,7 @@
 import ColorScheme from "color-scheme";
-import { gitHashToSeed } from "../utils";
+import "../../../global.d";
 
+import { gitHashToSeed } from "../utils";
 
 /**
  * Generates a color scheme based on a given Git hash.
@@ -8,7 +9,7 @@ import { gitHashToSeed } from "../utils";
  * @param {string} gitHash - The Git hash used to generate the color scheme.
  * @returns {string[]} An array of hex color codes representing the generated color scheme.
  */
-export function generateColorScheme(gitHash) {
+export function generateColorScheme(gitHash: string): string[] {
   const seed = gitHashToSeed(gitHash);
   const scheme = new ColorScheme();
   scheme
@@ -16,7 +17,7 @@ export function generateColorScheme(gitHash) {
     .scheme("analogic")
     .variation("soft");
 
-  let colors = scheme.colors().map((hex) => `#${hex}`);
+  let colors = scheme.colors().map((hex: string) => `#${hex}`);
 
   const contrastingHue = (seed + 180) % 360;
   const contrastingScheme = new ColorScheme();
@@ -26,30 +27,69 @@ export function generateColorScheme(gitHash) {
   return colors;
 }
 
+interface MetallicColors {
+  gold: string;
+  silver: string;
+  copper: string;
+  bronze: string;
+}
+
+interface SacredPalette {
+  primary: string;
+  secondary: string;
+  accent: string;
+  metallic: string;
+}
+
+interface ElementalPalette {
+  earth: string;
+  water: string;
+  air: string;
+  fire: string;
+}
+
+interface ChakraPalette {
+  root: string;
+  sacral: string;
+  solar: string;
+  heart: string;
+  throat: string;
+  third_eye: string;
+  crown: string;
+}
+
+type ColorPalette = SacredPalette | ElementalPalette | ChakraPalette | string[];
+
 // Enhanced color scheme generation for sacred geometry
 export class SacredColorScheme {
-  constructor(gitHash) {
+  private seed: number;
+  public baseScheme: string[];
+  private complementaryScheme: string[];
+  private metallic: MetallicColors;
+
+  constructor(gitHash: string) {
     this.seed = this.gitHashToSeed(gitHash);
     this.baseScheme = this.generateBaseScheme();
     this.complementaryScheme = this.generateComplementaryScheme();
     this.metallic = this.generateMetallicColors();
   }
 
-  gitHashToSeed(hash) {
+  private gitHashToSeed(hash: string): number {
     return parseInt(hash.slice(0, 8), 16);
   }
 
-  generateBaseScheme() {
+  private generateBaseScheme(): string[] {
     const scheme = new ColorScheme();
+    scheme;
     return scheme
       .from_hue(this.seed % 360)
       .scheme("analogic")
       .variation("soft")
       .colors()
-      .map((hex) => `#${hex}`);
+      .map((hex: string) => `#${hex}`);
   }
 
-  generateComplementaryScheme() {
+  private generateComplementaryScheme(): string[] {
     const complementaryHue = (this.seed + 180) % 360;
     const scheme = new ColorScheme();
     return scheme
@@ -57,10 +97,10 @@ export class SacredColorScheme {
       .scheme("mono")
       .variation("soft")
       .colors()
-      .map((hex) => `#${hex}`);
+      .map((hex: string) => `#${hex}`);
   }
 
-  generateMetallicColors() {
+  private generateMetallicColors(): MetallicColors {
     return {
       gold: "#FFD700",
       silver: "#C0C0C0",
@@ -69,7 +109,9 @@ export class SacredColorScheme {
     };
   }
 
-  getColorPalette(type = "sacred") {
+  getColorPalette(
+    type: "sacred" | "elemental" | "chakra" | "default" = "sacred",
+  ): ColorPalette {
     switch (type) {
       case "sacred":
         return {

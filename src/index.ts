@@ -7,25 +7,12 @@ import { shapes } from "./lib/canvas/shapes";
 import { getRandomFromHash } from "./lib/utils";
 
 /**
- * @typedef {Object} ArtConfig
- * @property {number} width - Canvas width in pixels
- * @property {number} height - Canvas height in pixels
- * @property {number} [gridSize=4] - Number of grid cells (gridSize x gridSize)
- * @property {number} [layers=5] - Number of layers to generate
- * @property {number} [shapesPerLayer] - Base number of shapes per layer (defaults to grid cells * 1.5)
- * @property {number} [minShapeSize=20] - Minimum shape size
- * @property {number} [maxShapeSize=180] - Maximum shape size
- * @property {number} [baseOpacity=0.6] - Starting opacity for first layer
- * @property {number} [opacityReduction=0.1] - How much to reduce opacity per layer
- */
-
-/**
  * Generate an abstract art image from a git hash with custom configuration
  * @param {string} gitHash - The git hash to use as a seed
  * @param {ArtConfig} [config={}] - Configuration options
  * @returns {Buffer} PNG buffer of the generated image
  */
-function generateImageFromHash(gitHash, config = {}) {
+function generateImageFromHash(gitHash: string, config = {}) {
   // Default configuration
   const defaultConfig = {
     width: 2048,
@@ -36,6 +23,7 @@ function generateImageFromHash(gitHash, config = {}) {
     maxShapeSize: 600,
     baseOpacity: 0.8,
     opacityReduction: 0.4,
+    shapesPerLayer: 0,
   };
 
   // Merge provided config with defaults
@@ -56,8 +44,8 @@ function generateImageFromHash(gitHash, config = {}) {
     finalConfig.shapesPerLayer || Math.floor(gridSize * gridSize * 1.5);
 
   const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext("2d");
-  
+  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColorPalette("chakra");
 
@@ -82,7 +70,7 @@ function generateImageFromHash(gitHash, config = {}) {
     const numShapes =
       finalConfig.shapesPerLayer +
       Math.floor(
-        getRandomFromHash(gitHash, layer, 0, finalConfig.shapesPerLayer / 2)
+        getRandomFromHash(gitHash, layer, 0, finalConfig.shapesPerLayer / 2),
       );
     const layerOpacity = baseOpacity - layer * opacityReduction;
 
@@ -94,13 +82,13 @@ function generateImageFromHash(gitHash, config = {}) {
         gitHash,
         layer * numShapes + i * 2,
         0,
-        cellWidth
+        cellWidth,
       );
       const cellOffsetY = getRandomFromHash(
         gitHash,
         layer * numShapes + i * 2 + 1,
         0,
-        cellHeight
+        cellHeight,
       );
 
       const x = gridX * cellWidth + cellOffsetX;
@@ -113,8 +101,8 @@ function generateImageFromHash(gitHash, config = {}) {
               gitHash,
               layer * numShapes + i * 3,
               0,
-              shapeNames.length
-            )
+              shapeNames.length,
+            ),
           )
         ];
       const size =
@@ -123,20 +111,30 @@ function generateImageFromHash(gitHash, config = {}) {
           gitHash,
           layer * numShapes + i * 4,
           0,
-          adjustedMaxSize - adjustedMinSize
+          adjustedMaxSize - adjustedMinSize,
         );
       const rotation = getRandomFromHash(
         gitHash,
         layer * numShapes + i * 5,
         0,
-        360
+        360,
       );
 
       const fillColorIndex = Math.floor(
-        getRandomFromHash(gitHash, layer * numShapes + i * 6, 0, colors.length)
+        getRandomFromHash(
+          gitHash,
+          layer * numShapes + i * 6,
+          0,
+          Object.keys(colors).length,
+        ),
       );
       const strokeColorIndex = Math.floor(
-        getRandomFromHash(gitHash, layer * numShapes + i * 7, 0, colors.length)
+        getRandomFromHash(
+          gitHash,
+          layer * numShapes + i * 7,
+          0,
+          Object.keys(colors).length,
+        ),
       );
 
       ctx.globalAlpha = layerOpacity;
@@ -151,9 +149,10 @@ function generateImageFromHash(gitHash, config = {}) {
       //   size,
       //   rotation
       // );
+
       enhanceShapeGeneration(ctx, shape, x, y, {
-        fillColor: colors[fillColorIndex],
-        strokeColor: colors[strokeColorIndex],
+        fillColor: Object.values(colors)[fillColorIndex],
+        strokeColor: Object.values(colors)[strokeColorIndex],
         strokeWidth: 1.5 * scaleFactor,
         size,
         rotation,
@@ -166,7 +165,7 @@ function generateImageFromHash(gitHash, config = {}) {
 
     // Add connecting lines scaled to canvas size
     ctx.globalAlpha = 0.2;
-    ctx.strokeStyle = colors[colors.length - 1];
+    ctx.strokeStyle = Object.values(colors)[Object.keys(colors).length - 1];
     ctx.lineWidth = 1 * scaleFactor;
 
     const numLines = Math.floor((15 * (width * height)) / (1024 * 1024));
@@ -196,7 +195,14 @@ function generateImageFromHash(gitHash, config = {}) {
  * @param {number} height - The height of the generated image
  * @returns {string} Path to the saved image
  */
-function saveImageToFile(imageBuffer, outputDir, gitHash, label = "", width, height) {
+function saveImageToFile(
+  imageBuffer: string,
+  outputDir: string,
+  gitHash: string | any[],
+  label = "",
+  width: any,
+  height: any,
+) {
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
@@ -223,4 +229,3 @@ const imageBuffer = generateImageFromHash(gitHash, { width: 1024, height: 1024 }
 const savedImagePath = saveImageToFile(imageBuffer, './output', gitHash, 'example', 1024, 1024);
 console.log(`Image saved to: ${savedImagePath}`);
 */
-

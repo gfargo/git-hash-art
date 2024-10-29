@@ -1,14 +1,16 @@
-export const drawCircle = (ctx, size) => {
+type DrawFunction = (ctx: CanvasRenderingContext2D, size: number) => void;
+
+export const drawCircle: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
 };
 
-export const drawSquare = (ctx, size) => {
+export const drawSquare: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.rect(-size / 2, -size / 2, size, size);
 };
 
-export const drawTriangle = (ctx, size) => {
+export const drawTriangle: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.moveTo(0, -size / 2);
   ctx.lineTo(-size / 2, size / 2);
@@ -16,7 +18,7 @@ export const drawTriangle = (ctx, size) => {
   ctx.closePath();
 };
 
-export const drawHexagon = (ctx, size) => {
+export const drawHexagon: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
     const angle = (Math.PI / 8) * i;
@@ -28,7 +30,7 @@ export const drawHexagon = (ctx, size) => {
   ctx.closePath();
 };
 
-export const drawStar = (ctx, size) => {
+export const drawStar: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
     const angle = Math.PI / 5 + (Math.PI / 5) * i * 3;
@@ -41,7 +43,7 @@ export const drawStar = (ctx, size) => {
   ctx.closePath();
 };
 
-export const drawJackedStar = (ctx, size) => {
+export const drawJackedStar: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
     const angle = Math.PI / 30 + (Math.PI / 30) * i * 8;
@@ -54,14 +56,14 @@ export const drawJackedStar = (ctx, size) => {
   ctx.closePath();
 };
 
-export const drawHeart = (ctx, size) => {
+export const drawHeart: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.moveTo(0, size / 4);
   ctx.quadraticCurveTo(size / 2, size / 4, 0, -size / 4);
   ctx.quadraticCurveTo(-size / 2, size / 4, 0, size / 4);
 };
 
-export const drawDiamond = (ctx, size) => {
+export const drawDiamond: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.moveTo(0, -size / 2);
   ctx.lineTo(size / 2, 0);
@@ -70,7 +72,7 @@ export const drawDiamond = (ctx, size) => {
   ctx.closePath();
 };
 
-export const drawCube = (ctx, size) => {
+export const drawCube: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   ctx.moveTo(-size / 2, -size / 2);
   ctx.lineTo(size / 2, -size / 2);
@@ -80,7 +82,7 @@ export const drawCube = (ctx, size) => {
 };
 
 // Optional: Create a shape map for easier lookup
-export const basicShapes = {
+export const basicShapes: Record<string, DrawFunction> = {
   circle: drawCircle,
   square: drawSquare,
   triangle: drawTriangle,
@@ -89,5 +91,5 @@ export const basicShapes = {
   "jacked-star": drawJackedStar,
   heart: drawHeart,
   diamond: drawDiamond,
-  cube: drawCube
+  cube: drawCube,
 };

@@ -1,17 +1,29 @@
-import { PatternCombiner } from "../utils";
+import { PatternCombiner, ProportionType } from "../utils";
 import { shapes } from "./shapes";
 
+interface DrawShapeConfig {
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  size: number;
+  rotation: number;
+}
+
+interface EnhanceShapeConfig extends DrawShapeConfig {
+  patterns?: Array<{ type: string; config: any }>;
+  proportionType?: ProportionType;
+  baseOpacity?: number;
+  opacityReduction?: number;
+}
+
 export function drawShape(
-  ctx,
-  shape,
-  x,
-  y,
-  fillColor,
-  strokeColor,
-  strokeWidth,
-  size,
-  rotation
+  ctx: CanvasRenderingContext2D,
+  shape: string,
+  x: number,
+  y: number,
+  config: DrawShapeConfig,
 ) {
+  const { fillColor, strokeColor, strokeWidth, size, rotation } = config;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate((rotation * Math.PI) / 180);
@@ -30,7 +42,13 @@ export function drawShape(
 }
 
 // Integration with existing generation logic
-export function enhanceShapeGeneration(ctx, shape, x, y, config) {
+export function enhanceShapeGeneration(
+  ctx: CanvasRenderingContext2D,
+  shape: string,
+  x: number,
+  y: number,
+  config: EnhanceShapeConfig,
+) {
   const {
     fillColor,
     strokeColor,

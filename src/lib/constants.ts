@@ -1,4 +1,31 @@
-export const PRESETS = {
+// Define interfaces for our configurations
+interface PresetConfig {
+  hash: string;
+  width: number;
+  height: number;
+  gridSize?: number;
+  shapesPerLayer?: number;
+  layers?: number;
+  baseOpacity?: number;
+  minShapeSize?: number;
+  maxShapeSize?: number;
+}
+
+interface ShapeConfig {
+  strokeStyle: string;
+  fillStyle: string;
+  lineWidth: number;
+  rotation: number;
+  iterations: number;
+  animate: boolean;
+}
+
+// Define the type for PRESETS
+type Presets = {
+  [key: string]: PresetConfig;
+};
+
+export const PRESETS: Presets = {
   // Standard sizes with different hashes
   react: {
     hash: "46192e59d42f741c761cbea79462a8b3815dd905",
@@ -90,7 +117,7 @@ export const PRESETS = {
 };
 
 // Basic configuration that applies to all shapes
-export const defaultShapeConfig = {
+export const defaultShapeConfig: ShapeConfig = {
   strokeStyle: "#000000",
   fillStyle: "transparent",
   lineWidth: 1,
@@ -118,19 +145,19 @@ export const Proportions = {
 
 // Helper for creating common sacred geometry combinations
 export const PatternPresets = {
-  flowerOfLifeMandala: (size) => [
+  flowerOfLifeMandala: (size: number) => [
     // { type: "flowerOfLife", config: { size } },
     { type: "merkaba", config: { size: size * 0.8 } },
     { type: "sriYantra", config: { size: size * 0.5 } },
   ],
 
-  platonicProgression: (size) => [
+  platonicProgression: (size: number) => [
     { type: "platonicSolid", config: { size, type: "tetrahedron" } },
     { type: "platonicSolid", config: { size: size * 0.8, type: "cube" } },
     { type: "platonicSolid", config: { size: size * 0.6, type: "octahedron" } },
   ],
 
-  cosmicTree: (size) => [
+  cosmicTree: (size: number) => [
     // { type: "treeOfLife", config: { size } },
     { type: "fibonacciSpiral", config: { size: size * 0.9 } },
     { type: "metatronsCube", config: { size: size * 0.7 } },

@@ -1,6 +1,21 @@
 import { defaultShapeConfig } from "../../constants";
 import { applyTransforms, createCirclePoints, restoreContext } from "./utils";
 
+interface PlatonicSolidConfig {
+  vertices: number;
+  faces: number;
+}
+
+interface FibonacciConfig {
+  iterations: number;
+  growthFactor: number;
+}
+
+interface GoldenRatioConfig {
+  iterations: number;
+  ratio: number;
+}
+
 export const ShapeConfigs = {
   platonic: {
     tetrahedron: { vertices: 4, faces: 4 },
@@ -8,25 +23,41 @@ export const ShapeConfigs = {
     octahedron: { vertices: 6, faces: 8 },
     dodecahedron: { vertices: 20, faces: 12 },
     icosahedron: { vertices: 12, faces: 20 },
-  },
+  } as Record<string, PlatonicSolidConfig>,
   fibonacci: {
     iterations: 13,
     growthFactor: 1.618034, // Golden ratio
-  },
+  } as FibonacciConfig,
   goldenRatio: {
     iterations: 8,
     ratio: 1.618034,
-  },
+  } as GoldenRatioConfig,
 };
 
-export const drawPlatonicSolid = (ctx, size, type, config = {}) => {
+interface ShapeConfig {
+  fillStyle?: string;
+  strokeStyle?: string;
+  lineWidth?: number;
+  rotation?: number;
+  iterations?: number;
+  animate?: boolean;
+  type?: string;
+}
+
+type DrawFunction = (
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  config?: ShapeConfig,
+) => void;
+
+export const drawPlatonicSolid: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
-  const { 
-    vertices, 
-    // faces 
-  } = ShapeConfigs.platonic[type];
+  const {
+    vertices,
+    // faces
+  } = ShapeConfigs.platonic[config.type as keyof typeof ShapeConfigs.platonic];
   const radius = size / 2;
 
   // Calculate vertices based on platonic solid type
@@ -48,7 +79,7 @@ export const drawPlatonicSolid = (ctx, size, type, config = {}) => {
   restoreContext(ctx);
 };
 
-export const drawFibonacciSpiral = (ctx, size, config = {}) => {
+export const drawFibonacciSpiral: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = {
     ...defaultShapeConfig,
     ...ShapeConfigs.fibonacci,
@@ -82,7 +113,7 @@ export const drawFibonacciSpiral = (ctx, size, config = {}) => {
   restoreContext(ctx);
 };
 
-export const drawIslamicPattern = (ctx, size, config = {}) => {
+export const drawIslamicPattern: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
@@ -99,34 +130,29 @@ export const drawIslamicPattern = (ctx, size, config = {}) => {
       // Draw star pattern at each intersection
       const radius = unit / 2;
       for (let k = 0; k < 8; k++) {
-        const angle = (k / 8) * Math.PI * 2;
-        const x1 = x + Math.cos(angle) * radius;
-        const y1 = y + Math.sin(angle) * radius;
-        if (k === 0) {
-          ctx.moveTo(x1, y1);
-        } else {
-          ctx.lineTo(x1, y1);
-        }
+        const angle = (Math.PI / 4) * k;
+        const x1 = x + radius * Math.cos(angle);
+        const y1 = y + radius * Math.sin(angle);
+        const x2 = x + radius * Math.cos(angle + Math.PI / 4);
+        const y2 = y + radius * Math.sin(angle + Math.PI / 4);
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
       }
-      ctx.closePath();
     }
   }
 
-  if (finalConfig.fillStyle !== "transparent") {
-    ctx.fill();
-  }
   ctx.stroke();
   restoreContext(ctx);
 };
 
-export const drawCelticKnot = (ctx, size, config = {}) => {
+export const drawCelticKnot: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
   const gridSize = 4;
   const unit = size / gridSize;
 
-  const drawKnotSegment = (x, y, type) => {
+  const drawKnotSegment = (x: number, y: number, type: string) => {
     ctx.beginPath();
     switch (type) {
       case "over":
@@ -137,7 +163,7 @@ export const drawCelticKnot = (ctx, size, config = {}) => {
           x + unit / 2,
           y + unit,
           x + unit,
-          y + unit
+          y + unit,
         );
         break;
       case "under":
@@ -160,7 +186,7 @@ export const drawCelticKnot = (ctx, size, config = {}) => {
   restoreContext(ctx);
 };
 
-export const drawMerkaba = (ctx, size, config = {}) => {
+export const drawMerkaba: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
@@ -194,12 +220,68 @@ export const drawMerkaba = (ctx, size, config = {}) => {
   restoreContext(ctx);
 };
 
-export const complexShapes = {
-  platonicSolid: (ctx, size, type = "tetrahedron", config) =>
-    drawPlatonicSolid(ctx, size, type, config),
-  fibonacciSpiral: (ctx, size, config) =>
-    drawFibonacciSpiral(ctx, size, config),
-  islamicPattern: (ctx, size, config) => drawIslamicPattern(ctx, size, config),
-  celticKnot: (ctx, size, config) => drawCelticKnot(ctx, size, config),
-  merkaba: (ctx, size, config) => drawMerkaba(ctx, size, config),
+export const drawMandala: DrawFunction = (ctx, size, config = {}) => {
+  const finalConfig = { ...defaultShapeConfig, ...config };
+  applyTransforms(ctx, size, finalConfig);
+
+  const numCircles = 8;
+  const numPoints = 16;
+  const radius = size / 2;
+
+  ctx.beginPath();
+  for (let i = 1; i <= numCircles; i++) {
+    const circleRadius = (radius / numCircles) * i;
+    ctx.moveTo(circleRadius, 0);
+    ctx.arc(0, 0, circleRadius, 0, Math.PI * 2);
+
+    for (let j = 0; j < numPoints; j++) {
+      const angle = (Math.PI * 2 * j) / numPoints;
+      const x = circleRadius * Math.cos(angle);
+      const y = circleRadius * Math.sin(angle);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(x, y);
+    }
+  }
+
+  ctx.stroke();
+  restoreContext(ctx);
+};
+
+export const drawFractal: DrawFunction = (ctx, size, config = {}) => {
+  const finalConfig = { ...defaultShapeConfig, ...config, iterations: 5 };
+  applyTransforms(ctx, size, finalConfig);
+
+  const drawBranch = (
+    x: number,
+    y: number,
+    length: number,
+    angle: number,
+    depth: number,
+  ) => {
+    if (depth === 0) return;
+
+    const endX = x + length * Math.cos(angle);
+    const endY = y + length * Math.sin(angle);
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    drawBranch(endX, endY, length * 0.7, angle - Math.PI / 6, depth - 1);
+    drawBranch(endX, endY, length * 0.7, angle + Math.PI / 6, depth - 1);
+  };
+
+  drawBranch(0, size / 2, size / 4, -Math.PI / 2, finalConfig.iterations);
+  restoreContext(ctx);
+};
+
+export const complexShapes: Record<string, DrawFunction> = {
+  platonicSolid: drawPlatonicSolid,
+  fibonacciSpiral: drawFibonacciSpiral,
+  islamicPattern: drawIslamicPattern,
+  celticKnot: drawCelticKnot,
+  merkaba: drawMerkaba,
+  mandala: drawMandala,
+  fractal: drawFractal,
 };
