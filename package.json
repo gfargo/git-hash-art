@@ -19,7 +19,7 @@
   "types": "dist/types.d.ts",
   "license": "MIT",
   "dependencies": {
-    "canvas": "^2.11.2",
+    "canvas": "^3.0.0",
     "color-scheme": "^1.0.1"
   },
   "devDependencies": {
