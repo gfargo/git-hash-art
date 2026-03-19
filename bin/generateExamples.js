@@ -1,7 +1,8 @@
-import fs from 'fs';
-import path from 'path';
-import { generateImageFromHash, saveImageToFile } from '../dist/main.js';
-import { PRESETS } from '../src/lib/constants.js';
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const { generateImageFromHash, saveImageToFile } = require('../dist/main.js');
+const { PRESETS } = require('../dist/main.js');
 
 const OUTPUT_DIR = './examples';
 
@@ -21,7 +22,7 @@ function generateTestCases() {
       const imageBuffer = generateImageFromHash(testCase.hash, {
         width: testCase.width,
         height: testCase.height,
-        ...testCase, // Include any additional configuration from the preset
+        ...testCase,
       });
       const outputPath = saveImageToFile(imageBuffer, OUTPUT_DIR, testCase.hash, label, testCase.width, testCase.height);
       results.push({ label, hash: testCase.hash, outputPath, success: true });
@@ -47,13 +48,4 @@ function generateTestCases() {
   });
 }
 
-// Run the test cases
 generateTestCases();
-
-
-
-// const gitHash = '1234567890abcdef1234567890abcdef12345678';
-// const imageBuffer = generateImageFromHash(gitHash, { width: 1024, height: 1024 });
-// const savedImagePath = saveImageToFile(imageBuffer, './output', gitHash, 'example', 1024, 1024);
-// console.log(`Image saved to: ${savedImagePath}`);
-
