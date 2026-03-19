@@ -151,23 +151,56 @@ function applyRenderStyle(
       break;
 
     case "watercolor": {
-      // Draw 3-4 slightly offset passes at low opacity for a bleed effect
-      const passes = 3 + (rng ? Math.floor(rng() * 2) : 0);
+      // Improved watercolor: edge darkening + radial bleed + layered washes
+      const passes = 4 + (rng ? Math.floor(rng() * 2) : 0);
       const savedAlpha = ctx.globalAlpha;
-      ctx.globalAlpha = savedAlpha * (0.3 / passes * 2);
+
+      // Pass 1: Base wash — large, soft fill at low opacity
+      ctx.globalAlpha = savedAlpha * 0.15;
+      ctx.save();
+      const baseScale = 1.08 + (rng ? rng() * 0.04 : 0);
+      ctx.scale(baseScale, baseScale);
+      ctx.fill();
+      ctx.restore();
+
+      // Pass 2: Multiple offset washes with radial displacement
+      ctx.globalAlpha = savedAlpha * (0.25 / passes * 2);
       for (let p = 0; p < passes; p++) {
-        const jx = rng ? (rng() - 0.5) * size * 0.06 : 0;
-        const jy = rng ? (rng() - 0.5) * size * 0.06 : 0;
+        // Radial outward displacement (not uniform) for organic bleed
+        const angle = rng ? rng() * Math.PI * 2 : p * Math.PI / 2;
+        const dist = rng ? rng() * size * 0.05 : size * 0.02;
+        const jx = Math.cos(angle) * dist;
+        const jy = Math.sin(angle) * dist;
         ctx.save();
         ctx.translate(jx, jy);
         ctx.fill();
         ctx.restore();
       }
+
+      // Pass 3: Edge darkening — draw a slightly smaller shape with lighter fill
+      // to simulate pigment pooling at boundaries
+      ctx.globalAlpha = savedAlpha * 0.35;
+      ctx.save();
+      const innerScale = 0.85 + (rng ? rng() * 0.08 : 0);
+      ctx.scale(innerScale, innerScale);
+      // Lighten the fill for the inner area
+      const origFill = ctx.fillStyle;
+      if (typeof fillColor === "string") {
+        ctx.fillStyle = fillColor.replace(/[\d.]+\)$/, (m) => {
+          const v = parseFloat(m);
+          return Math.min(1, v * 1.4).toFixed(2) + ")";
+        });
+      }
+      ctx.fill();
+      ctx.fillStyle = origFill;
+      ctx.restore();
+
       ctx.globalAlpha = savedAlpha;
-      // Light stroke on top
-      ctx.globalAlpha *= 0.4;
+      // Soft stroke on top — thinner than normal for delicacy
+      ctx.globalAlpha *= 0.25;
+      ctx.lineWidth = strokeWidth * 0.6;
       ctx.stroke();
-      ctx.globalAlpha /= 0.4;
+      ctx.globalAlpha /= 0.25;
       break;
     }
 

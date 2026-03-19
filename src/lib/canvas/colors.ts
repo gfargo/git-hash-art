@@ -325,9 +325,87 @@ export function hexWithAlpha(hex: string, alpha: number): string {
 }
 
 /**
- * Apply slight hue/saturation/lightness jitter to a hex color.
- * `rng` should return a float in [0,1). `amount` controls intensity (0-1, default 0.1).
+ * Color hierarchy — assigns dominant/secondary/accent roles to a palette.
+ * Dominant gets ~60% of usage, secondary ~25%, accent ~15%.
  */
+export interface ColorHierarchy {
+  dominant: string;
+  secondary: string;
+  accent: string;
+  all: string[];
+}
+
+export function buildColorHierarchy(colors: string[], rng: () => number): ColorHierarchy {
+  if (colors.length < 3) {
+    return {
+      dominant: colors[0] || "#888888",
+      secondary: colors[1] || colors[0] || "#888888",
+      accent: colors[colors.length - 1] || "#888888",
+      all: colors,
+    };
+  }
+  // Pick dominant as the color closest to the palette's average hue
+  const hsls = colors.map((c) => hexToHsl(c));
+  const avgHue = hsls.reduce((s, h) => s + h[0], 0) / hsls.length;
+  let dominantIdx = 0;
+  let minDist = 360;
+  for (let i = 0; i < hsls.length; i++) {
+    const d = Math.min(Math.abs(hsls[i][0] - avgHue), 360 - Math.abs(hsls[i][0] - avgHue));
+    if (d < minDist) { minDist = d; dominantIdx = i; }
+  }
+  // Accent is the color most distant from dominant in hue
+  let accentIdx = 0;
+  let maxDist = 0;
+  for (let i = 0; i < hsls.length; i++) {
+    if (i === dominantIdx) continue;
+    const d = Math.min(Math.abs(hsls[i][0] - hsls[dominantIdx][0]), 360 - Math.abs(hsls[i][0] - hsls[dominantIdx][0]));
+    if (d > maxDist) { maxDist = d; accentIdx = i; }
+  }
+  // Secondary is the remaining color with highest saturation
+  let secondaryIdx = 0;
+  let maxSat = -1;
+  for (let i = 0; i < hsls.length; i++) {
+    if (i === dominantIdx || i === accentIdx) continue;
+    if (hsls[i][1] > maxSat) { maxSat = hsls[i][1]; secondaryIdx = i; }
+  }
+  if (secondaryIdx === dominantIdx) secondaryIdx = accentIdx === 0 ? 1 : 0;
+
+  return {
+    dominant: colors[dominantIdx],
+    secondary: colors[secondaryIdx],
+    accent: colors[accentIdx],
+    all: colors,
+  };
+}
+
+/**
+ * Pick a color from the hierarchy with weighted probability.
+ * ~60% dominant, ~25% secondary, ~15% accent.
+ */
+export function pickHierarchyColor(hierarchy: ColorHierarchy, rng: () => number): string {
+  const roll = rng();
+  if (roll < 0.60) return hierarchy.dominant;
+  if (roll < 0.85) return hierarchy.secondary;
+  return hierarchy.accent;
+}
+
+/**
+ * HSL-space color jitter — preserves vibrancy better than RGB jitter.
+ * Applies small hue wobble + saturation/lightness variation.
+ */
+export function jitterColorHSL(
+  hex: string,
+  rng: () => number,
+  hueAmount = 8,
+  slAmount = 0.06,
+): string {
+  const [h, s, l] = hexToHsl(hex);
+  const newH = (h + (rng() - 0.5) * hueAmount * 2 + 360) % 360;
+  const newS = Math.max(0, Math.min(1, s + (rng() - 0.5) * slAmount * 2));
+  const newL = Math.max(0, Math.min(1, l + (rng() - 0.5) * slAmount * 2));
+  return hslToHex(newH, newS, newL);
+}
+
 export function jitterColor(
   hex: string,
   rng: () => number,
@@ -401,4 +479,34 @@ export function enforceContrast(
     const targetS = Math.min(1, s + 0.15);
     return hslToHex(h, targetS, targetL);
   }
+}
+
+/**
+ * Apply a unified color grade to a hex color — shifts the entire image
+ * toward a cohesive tone. This is the "Instagram filter" effect.
+ */
+export function applyColorGrade(
+  hex: string,
+  gradeHue: number,
+  intensity: number,
+): string {
+  const [h, s, l] = hexToHsl(hex);
+  // Blend hue toward the grade hue
+  const hueDiff = ((gradeHue - h + 540) % 360) - 180;
+  const newH = (h + hueDiff * intensity * 0.3 + 360) % 360;
+  // Slightly unify saturation
+  const newS = Math.max(0, Math.min(1, s + (0.5 - s) * intensity * 0.15));
+  return hslToHex(newH, newS, l);
+}
+
+/**
+ * Compute a deterministic color grade from the hash.
+ * Returns a hue (0-360) and intensity (0.15-0.4).
+ */
+export function pickColorGrade(rng: () => number): { hue: number; intensity: number } {
+  // Warm golden, cool blue, rosy, teal, amber
+  const GRADE_HUES = [40, 220, 340, 175, 30];
+  const hue = GRADE_HUES[Math.floor(rng() * GRADE_HUES.length)] + (rng() - 0.5) * 20;
+  const intensity = 0.15 + rng() * 0.25;
+  return { hue: (hue + 360) % 360, intensity };
 }
