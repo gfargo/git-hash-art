@@ -11,12 +11,13 @@ Hash String
   │
   ├─► Archetype Selection (1 of 10 visual personalities)
   │
-  ├─► Color Scheme (palette mode from archetype + temperature mode)
+  ├─► Color Scheme (palette mode from archetype + temperature mode + contrast enforcement)
   │
   └─► Rendering Pipeline (parameters overridden by archetype)
        │
        0.  Archetype Override (gridSize, layers, opacity, sizes, styles)
        1.  Background Layer (7 styles: radial, linear, solid, multi-stop)
+       1a. Background Luminance → contrast enforcement threshold
        1b. Layered Background (faint shapes + concentric rings)
        2.  Composition Mode Selection
        2b. Symmetry Mode Selection (none / bilateral / quad)
@@ -27,7 +28,8 @@ Hash String
        │   ├─ Blend Mode (per-layer compositing)
        │   ├─ Render Style (archetype-preferred + random mix)
        │   ├─ Position (composition mode + focal bias + density check)
-       │   ├─ Shape Selection (layer-weighted)
+       │   ├─ Shape Selection (4 categories: basic, complex, sacred, procedural)
+       │   ├─ Contrast Enforcement (ensure readability vs background)
        │   ├─ Atmospheric Depth (desaturation on later layers)
        │   ├─ Temperature Contrast (foreground opposite to background)
        │   ├─ Styling (transparency, glow, gradients, color jitter)
@@ -267,13 +269,25 @@ Later layers progressively desaturate their colors (0% on layer 0, up to 30% on 
 
 ### Shape Selection (Layer-Weighted)
 
-Shapes are divided into three categories with weights that shift across layers:
+Shapes are divided into four categories with weights that shift across layers:
 
 | Category | Shapes | Early layers | Late layers |
 |----------|--------|-------------|-------------|
 | **Basic** | circle, square, triangle, hexagon, diamond, cube | High weight | Low weight |
 | **Complex** | star, platonic solid, fibonacci spiral, islamic pattern, celtic knot, merkaba, fractal | Medium | Medium-high |
 | **Sacred** | mandala, flower of life, tree of life, Metatron's cube, Sri Yantra, seed of life, vesica piscis, torus, egg of life | Low | High |
+| **Procedural** | blob, ngon, lissajous, superellipse, spirograph, waveRing, rose | Medium (always present) | Medium-high |
+
+Procedural shapes are hash-derived — their geometry is generated from the RNG, so every hash produces unique shapes that don't exist in any other generation. See the Procedural Shapes section below for details.
+
+### Contrast Enforcement
+
+After color selection, every foreground color (fills, strokes, flow lines, connecting curves) is checked against the average background luminance. If the luminance difference is below the minimum threshold (0.15), the color is adjusted:
+
+- **Light backgrounds** — foreground colors are darkened and saturated
+- **Dark backgrounds** — foreground colors are lightened and saturated
+
+This prevents the white-on-white and dark-on-dark readability problems that occur when light palette modes (pastel-light, high-contrast) combine with light background styles (solid-light, radial-light).
 
 ### Size Distribution
 
@@ -365,6 +379,19 @@ Mathematically precise sacred geometry patterns:
 - **Vesica Piscis** — two overlapping circles
 - **Torus** — 2D projection of a torus via line segments
 - **Egg of Life** — 7 circles in tight hexagonal packing
+
+### Procedural Shapes
+Hash-derived shapes whose geometry is generated from the RNG. Every hash produces unique shapes that don't exist in any other generation:
+
+| Shape | Algorithm | Hash Controls |
+|-------|-----------|---------------|
+| **Blob** | Smooth closed curve via quadratic bezier through 5-9 control points arranged around a circle | Number of lobes (5-9), radius jitter per lobe (50-100%) |
+| **Ngon** | Irregular polygon with independent vertex displacement | Side count (3-12), vertex jitter amount (10-50%) |
+| **Lissajous** | Parametric curve `x = sin(a*t + φ), y = sin(b*t)` | Frequency ratios a,b (1-5 each), phase offset φ |
+| **Superellipse** | `|x|^n + |y|^n = 1` rendered parametrically | Exponent n: 0.3 (spiky astroid) → 2 (circle) → 5 (rounded rectangle) |
+| **Spirograph** | Hypotrochoid curve `(R-r)cos(t) + d*cos((R-r)t/r)` | Inner radius ratio r (0.2-0.8), pen distance d (0.3-1.0) |
+| **Wave Ring** | Concentric rings with sinusoidal radial displacement | Ring count (2-5), wave frequency (3-14), amplitude (5-20%) |
+| **Rose** | Polar rose curve `r = cos(k*θ)` | Petal parameter k (2-7), producing k or 2k petals |
 
 ## Configuration
 

@@ -357,3 +357,48 @@ export function shiftTemperature(hex: string, target: "warm" | "cool", amount: n
   const [h, s, l] = hexToHsl(hex);
   return hslToHex(shiftHueToward(h, target, amount), s, l);
 }
+
+/**
+ * Compute relative luminance of a hex color (0 = black, 1 = white).
+ * Uses the sRGB luminance formula from WCAG.
+ */
+export function luminance(hex: string): number {
+  const [r, g, b] = hexToRgb(hex).map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Enforce minimum contrast between a foreground color and a background
+ * luminance. On light backgrounds, darkens/saturates the foreground.
+ * On dark backgrounds, lightens/saturates the foreground.
+ *
+ * `bgLuminance` is 0-1 (pre-computed from the background color).
+ * `minContrast` is the minimum luminance difference to enforce (default 0.15).
+ */
+export function enforceContrast(
+  fgHex: string,
+  bgLuminance: number,
+  minContrast = 0.15,
+): string {
+  const fgLum = luminance(fgHex);
+  const diff = Math.abs(fgLum - bgLuminance);
+
+  if (diff >= minContrast) return fgHex;
+
+  const [h, s, l] = hexToHsl(fgHex);
+
+  if (bgLuminance > 0.5) {
+    // Light background — darken and boost saturation
+    const targetL = Math.max(0.08, l - (minContrast - diff) * 1.5);
+    const targetS = Math.min(1, s + 0.2);
+    return hslToHex(h, targetS, targetL);
+  } else {
+    // Dark background — lighten and boost saturation
+    const targetL = Math.min(0.92, l + (minContrast - diff) * 1.5);
+    const targetS = Math.min(1, s + 0.15);
+    return hslToHex(h, targetS, targetL);
+  }
+}

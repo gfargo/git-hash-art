@@ -23,6 +23,8 @@ import {
     jitterColor,
     desaturate,
     shiftTemperature,
+    luminance,
+    enforceContrast,
 } from "./canvas/colors";
 import {
     enhanceShapeGeneration,
@@ -67,6 +69,15 @@ const SACRED_SHAPES = [
   "torus",
   "eggOfLife",
 ];
+const PROCEDURAL_SHAPES = [
+  "blob",
+  "ngon",
+  "lissajous",
+  "superellipse",
+  "spirograph",
+  "waveRing",
+  "rose",
+];
 
 // ── Composition modes ───────────────────────────────────────────────
 
@@ -95,13 +106,15 @@ function pickShape(
   const basicW = 1 - layerRatio * 0.6;
   const complexW = 0.3 + layerRatio * 0.3;
   const sacredW = 0.1 + layerRatio * 0.4;
-  const total = basicW + complexW + sacredW;
+  const proceduralW = 0.25 + layerRatio * 0.2; // always present, grows with depth
+  const total = basicW + complexW + sacredW + proceduralW;
   const roll = rng() * total;
 
   let pool: string[];
   if (roll < basicW) pool = BASIC_SHAPES;
   else if (roll < basicW + complexW) pool = COMPLEX_SHAPES;
-  else pool = SACRED_SHAPES;
+  else if (roll < basicW + complexW + sacredW) pool = SACRED_SHAPES;
+  else pool = PROCEDURAL_SHAPES;
 
   const available = pool.filter((s) => shapeNames.includes(s));
   if (available.length === 0) {
@@ -339,6 +352,9 @@ export function renderHashArt(
   const bgRadius = Math.hypot(cx, cy);
   drawBackground(ctx, archetype.backgroundStyle, bgStart, bgEnd, width, height, cx, cy, bgRadius, rng, colors);
 
+  // Compute average background luminance for contrast enforcement
+  const bgLum = (luminance(bgStart) + luminance(bgEnd)) / 2;
+
   // ── 1b. Layered background (Feature G) ─────────────────────────
   // Draw large, very faint shapes to give the background texture
   const bgShapeCount = 3 + Math.floor(rng() * 4);
@@ -460,10 +476,10 @@ export function renderHashArt(
     const heroSize = adjustedMaxSize * (0.8 + rng() * 0.5);
     const heroRotation = rng() * 360;
     const heroFill = hexWithAlpha(
-      jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05),
+      enforceContrast(jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05), bgLum),
       0.15 + rng() * 0.2,
     );
-    const heroStroke = jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05);
+    const heroStroke = enforceContrast(jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05), bgLum);
 
     ctx.globalAlpha = 0.5 + rng() * 0.2;
     enhanceShapeGeneration(ctx, heroShape, heroFocal.x, heroFocal.y, {
@@ -559,8 +575,8 @@ export function renderHashArt(
         fillBase = shiftTemperature(fillBase, fgTempTarget, 0.15 + layerRatio * 0.1);
       }
 
-      const fillColor = jitterColor(fillBase, rng, 0.06);
-      const strokeColor = jitterColor(strokeBase, rng, 0.05);
+      const fillColor = enforceContrast(jitterColor(fillBase, rng, 0.06), bgLum);
+      const strokeColor = enforceContrast(jitterColor(strokeBase, rng, 0.05), bgLum);
 
       // Semi-transparent fill
       const fillAlpha = 0.2 + rng() * 0.5;
@@ -661,7 +677,7 @@ export function renderHashArt(
     const startWidth = (1 + rng() * 3) * scaleFactor;
 
     const lineColor = hexWithAlpha(
-      colors[Math.floor(rng() * colors.length)],
+      enforceContrast(colors[Math.floor(rng() * colors.length)], bgLum),
       0.4,
     );
     const lineAlpha = 0.06 + rng() * 0.1;
@@ -768,7 +784,7 @@ export function renderHashArt(
 
       ctx.globalAlpha = 0.06 + rng() * 0.1;
       ctx.strokeStyle = hexWithAlpha(
-        colors[Math.floor(rng() * colors.length)],
+        enforceContrast(colors[Math.floor(rng() * colors.length)], bgLum),
         0.3,
       );
 
