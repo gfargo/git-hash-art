@@ -668,16 +668,26 @@ export function enhanceShapeGeneration(
   ctx.shadowOffsetY = 0;
   ctx.shadowColor = "transparent";
 
-  // ── Specular highlight — bright arc on the light-facing side ──
+  // ── Specular highlight — tinted arc on the light-facing side ──
   if (lightAngle !== undefined && size > 15 && rng) {
     const hlRadius = size * 0.35;
     const hlDist = size * 0.15;
     const hlX = Math.cos(lightAngle) * hlDist;
     const hlY = Math.sin(lightAngle) * hlDist;
     const hlGrad = ctx.createRadialGradient(hlX, hlY, 0, hlX, hlY, hlRadius);
-    hlGrad.addColorStop(0, "rgba(255,255,255,0.18)");
-    hlGrad.addColorStop(0.5, "rgba(255,255,255,0.05)");
-    hlGrad.addColorStop(1, "rgba(255,255,255,0)");
+    // Tint highlight warm/cool based on fill color for cohesion
+    // Parse fill to detect warmth — fallback to white for non-parseable
+    let hlBase = "255,255,255";
+    if (typeof fillColor === "string" && fillColor.startsWith("#") && fillColor.length >= 7) {
+      const r = parseInt(fillColor.slice(1, 3), 16);
+      const g = parseInt(fillColor.slice(3, 5), 16);
+      const b = parseInt(fillColor.slice(5, 7), 16);
+      // Blend toward white but keep a hint of the fill's warmth
+      hlBase = `${Math.round(r * 0.15 + 255 * 0.85)},${Math.round(g * 0.15 + 255 * 0.85)},${Math.round(b * 0.15 + 255 * 0.85)}`;
+    }
+    hlGrad.addColorStop(0, `rgba(${hlBase},0.18)`);
+    hlGrad.addColorStop(0.5, `rgba(${hlBase},0.05)`);
+    hlGrad.addColorStop(1, `rgba(${hlBase},0)`);
     const savedOp = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = "soft-light";
     ctx.fillStyle = hlGrad;

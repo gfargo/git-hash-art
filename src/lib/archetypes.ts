@@ -34,6 +34,14 @@ export type PaletteMode =
 
 // ── Archetype definition ────────────────────────────────────────────
 
+export type CompositionMode =
+  | "radial"
+  | "flow-field"
+  | "spiral"
+  | "grid-subdivision"
+  | "clustered"
+  | "golden-spiral";
+
 export interface Archetype {
   name: string;
   /** Override gridSize (controls shape count) */
@@ -54,6 +62,8 @@ export interface Archetype {
   paletteMode: PaletteMode;
   /** Preferred render styles (weighted toward these) */
   preferredStyles: RenderStyle[];
+  /** Preferred composition modes (70% chance of using one of these) */
+  preferredCompositions: CompositionMode[];
   /** Flow line count multiplier (1 = default) */
   flowLineMultiplier: number;
   /** Whether to draw the hero shape */
@@ -80,6 +90,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-dark",
     paletteMode: "harmonious",
     preferredStyles: ["fill-and-stroke", "watercolor", "fill-only"],
+    preferredCompositions: ["clustered", "flow-field", "radial"],
     flowLineMultiplier: 2.5,
     heroShape: false,
     glowMultiplier: 0.5,
@@ -97,6 +108,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-light",
     paletteMode: "duotone",
     preferredStyles: ["fill-and-stroke", "stroke-only", "incomplete"],
+    preferredCompositions: ["golden-spiral", "grid-subdivision"],
     flowLineMultiplier: 0.3,
     heroShape: true,
     glowMultiplier: 0,
@@ -114,6 +126,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-dark",
     paletteMode: "earth",
     preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredCompositions: ["flow-field", "golden-spiral", "spiral"],
     flowLineMultiplier: 4,
     heroShape: false,
     glowMultiplier: 0.3,
@@ -131,6 +144,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-dark",
     paletteMode: "high-contrast",
     preferredStyles: ["stroke-only", "dashed", "double-stroke", "hatched"],
+    preferredCompositions: ["grid-subdivision", "radial"],
     flowLineMultiplier: 0,
     heroShape: false,
     glowMultiplier: 0,
@@ -148,6 +162,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-light",
     paletteMode: "pastel-light",
     preferredStyles: ["watercolor", "incomplete", "fill-only"],
+    preferredCompositions: ["golden-spiral", "radial", "spiral"],
     flowLineMultiplier: 1.5,
     heroShape: true,
     glowMultiplier: 2,
@@ -165,6 +180,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "linear-diagonal",
     paletteMode: "duotone",
     preferredStyles: ["fill-and-stroke", "double-stroke"],
+    preferredCompositions: ["grid-subdivision", "golden-spiral"],
     flowLineMultiplier: 0,
     heroShape: true,
     glowMultiplier: 0,
@@ -182,6 +198,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-dark",
     paletteMode: "neon",
     preferredStyles: ["stroke-only", "double-stroke", "dashed"],
+    preferredCompositions: ["radial", "spiral", "clustered"],
     flowLineMultiplier: 2,
     heroShape: true,
     glowMultiplier: 3,
@@ -199,6 +216,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-light",
     paletteMode: "monochrome",
     preferredStyles: ["hatched", "incomplete", "stroke-only", "dashed"],
+    preferredCompositions: ["flow-field", "grid-subdivision", "clustered"],
     flowLineMultiplier: 1.5,
     heroShape: false,
     glowMultiplier: 0,
@@ -216,6 +234,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-dark",
     paletteMode: "neon",
     preferredStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    preferredCompositions: ["radial", "spiral", "golden-spiral"],
     flowLineMultiplier: 3,
     heroShape: true,
     glowMultiplier: 2.5,
@@ -233,6 +252,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-light",
     paletteMode: "harmonious",
     preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredCompositions: ["golden-spiral", "flow-field", "radial"],
     flowLineMultiplier: 0.5,
     heroShape: false,
     glowMultiplier: 0.3,
@@ -250,6 +270,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-light",
     paletteMode: "high-contrast",
     preferredStyles: ["fill-and-stroke", "stroke-only", "dashed"],
+    preferredCompositions: ["grid-subdivision", "radial"],
     flowLineMultiplier: 0,
     heroShape: false,
     glowMultiplier: 0,
@@ -267,6 +288,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-light",
     paletteMode: "duotone",
     preferredStyles: ["fill-and-stroke", "fill-only", "double-stroke"],
+    preferredCompositions: ["grid-subdivision", "clustered"],
     flowLineMultiplier: 0,
     heroShape: true,
     glowMultiplier: 0,
@@ -284,6 +306,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-dark",
     paletteMode: "harmonious",
     preferredStyles: ["fill-and-stroke", "watercolor", "fill-only"],
+    preferredCompositions: ["radial", "golden-spiral", "flow-field"],
     flowLineMultiplier: 1,
     heroShape: true,
     glowMultiplier: 1,
@@ -301,6 +324,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-dark",
     paletteMode: "high-contrast",
     preferredStyles: ["fill-and-stroke", "stroke-only", "fill-only"],
+    preferredCompositions: ["clustered", "grid-subdivision", "radial"],
     flowLineMultiplier: 0,
     heroShape: false,
     glowMultiplier: 0.3,
@@ -318,6 +342,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-light",
     paletteMode: "earth",
     preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredCompositions: ["flow-field", "golden-spiral", "spiral"],
     flowLineMultiplier: 3,
     heroShape: true,
     glowMultiplier: 0.2,
@@ -335,6 +360,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "solid-light",
     paletteMode: "monochrome",
     preferredStyles: ["stipple", "fill-only", "hatched"],
+    preferredCompositions: ["radial", "clustered", "flow-field"],
     flowLineMultiplier: 0,
     heroShape: false,
     glowMultiplier: 0,
@@ -352,6 +378,7 @@ const ARCHETYPES: Archetype[] = [
     backgroundStyle: "radial-dark",
     paletteMode: "neon",
     preferredStyles: ["fill-only", "watercolor", "stroke-only", "incomplete"],
+    preferredCompositions: ["spiral", "radial", "golden-spiral"],
     flowLineMultiplier: 2,
     heroShape: true,
     glowMultiplier: 2.5,
@@ -374,6 +401,7 @@ function lerpNum(a: number, b: number, t: number): number {
 function blendArchetypes(a: Archetype, b: Archetype, t: number): Archetype {
   // Merge preferred styles — unique union, primary archetype first
   const mergedStyles = [...new Set([...a.preferredStyles, ...b.preferredStyles])] as RenderStyle[];
+  const mergedCompositions = [...new Set([...a.preferredCompositions, ...b.preferredCompositions])] as CompositionMode[];
 
   return {
     name: `${a.name}+${b.name}`,
@@ -386,6 +414,7 @@ function blendArchetypes(a: Archetype, b: Archetype, t: number): Archetype {
     backgroundStyle: t < 0.5 ? a.backgroundStyle : b.backgroundStyle,
     paletteMode: t < 0.5 ? a.paletteMode : b.paletteMode,
     preferredStyles: mergedStyles,
+    preferredCompositions: mergedCompositions,
     flowLineMultiplier: lerpNum(a.flowLineMultiplier, b.flowLineMultiplier, t),
     heroShape: t < 0.5 ? a.heroShape : b.heroShape,
     glowMultiplier: lerpNum(a.glowMultiplier, b.glowMultiplier, t),

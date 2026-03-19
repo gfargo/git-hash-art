@@ -388,14 +388,16 @@ export function buildColorHierarchy(colors: string[], rng: () => number): ColorH
       all: colors,
     };
   }
-  // Pick dominant as the color closest to the palette's average hue
+  // Pick dominant as the color with the highest chroma (saturation × distance from gray)
+  // This selects the most visually prominent color rather than the average
   const hsls = colors.map((c) => hexToHsl(c));
-  const avgHue = hsls.reduce((s, h) => s + h[0], 0) / hsls.length;
   let dominantIdx = 0;
-  let minDist = 360;
+  let maxChroma = -1;
   for (let i = 0; i < hsls.length; i++) {
-    const d = Math.min(Math.abs(hsls[i][0] - avgHue), 360 - Math.abs(hsls[i][0] - avgHue));
-    if (d < minDist) { minDist = d; dominantIdx = i; }
+    // Chroma approximation: saturation × how far lightness is from 50% (gray)
+    const lightnessVibrancy = 1 - Math.abs(hsls[i][2] - 0.5) * 2; // peaks at L=0.5
+    const chroma = hsls[i][1] * lightnessVibrancy;
+    if (chroma > maxChroma) { maxChroma = chroma; dominantIdx = i; }
   }
   // Accent is the color most distant from dominant in hue
   let accentIdx = 0;
