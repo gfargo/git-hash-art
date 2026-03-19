@@ -9,10 +9,11 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Archetype Selection (1 of 17 visual personalities)
+  ├─► Archetype Selection (1 of 17 visual personalities, ~15% chance of blending two)
   │
   ├─► Color Scheme (palette mode + temperature mode + contrast enforcement)
   │   └─► Color Hierarchy (dominant 60% / secondary 25% / accent 15%)
+  │       └─► Per-Layer Palette Evolution (±20° hue drift across layers)
   │
   ├─► Shape Palette (affinity-curated primary / supporting / accent shapes)
   │
@@ -33,12 +34,15 @@ Hash String
        2.  Composition Mode Selection
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones
+       3b. Void Zone Decoration (halos, scattered dots, concentric rings)
        4.  Flow Field Initialization
        4b. Hero Shape (palette-aware, affinity-styled)
        5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
        │   ├─ Render Style (affinity-aware per shape)
        │   ├─ Depth-of-Field (stroke thinning + contrast reduction on far layers)
+       │   ├─ Color Palette Evolution (per-layer hue drift via evolveHierarchy)
+       │   ├─ Focal Depth Boost (nesting/constellation chance ↑ near focal points)
        │   ├─ Position (composition mode + focal bias + density check)
        │   ├─ Shape Selection (palette-driven with size constraints)
        │   ├─ Hero Avoidance Field (nearby shapes orient toward hero)
@@ -53,14 +57,18 @@ Hash String
        │   ├─ 5d. Recursive Nesting (~15% of large shapes, palette-aware)
        │   └─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
        6.  Flow-Line Pass (variable color, pressure, branching)
-       6b. Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
-       7.  Noise Texture Overlay
-       8.  Vignette (radial edge darkening)
-       9.  Organic Connecting Curves
-       10. Post-Processing
+       6b. Motion/Energy Lines (directional bursts from shapes)
+       6c. Layered Transparency / Glazing (~20% of shapes get multi-pass redraws)
+       7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
+       7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
+       8.  Noise Texture Overlay
+       9.  Vignette (radial edge darkening)
+       10. Organic Connecting Curves
+       11. Post-Processing
            ├─ Color Grading (unified tone overlay)
            ├─ Chromatic Aberration (neon/cosmic/ethereal only)
            └─ Bloom (neon/cosmic only)
+       12. Signature Mark (deterministic geometric chop mark)
 ```
 
 ## 1. Deterministic RNG
@@ -126,6 +134,18 @@ Each archetype controls:
 
 **celestial** — Boosts sacred geometry and cosmic shapes (crescent, geodesicDome, mandala, flowerOfLife, spirograph, fibonacciSpiral). Neon palette on dark background with heavy glow (2.5×) and deep layering (5 layers) creates a starfield-like composition with luminous geometric forms.
 
+### Archetype Blending
+
+~15% of hashes trigger **archetype blending**, where two archetypes are interpolated to create a hybrid personality. `blendArchetypes(primary, secondary, ratio)` works as follows:
+
+- **Blend ratio:** 25–50% (the secondary archetype never dominates)
+- **Numeric parameters** (`gridSize`, `layers`, `baseOpacity`, `minShapeSize`, etc.) are linearly interpolated between the two archetypes
+- **Style arrays** (`preferredStyles`) are merged — the primary's styles come first, then any unique styles from the secondary
+- **Categorical parameters** (`backgroundStyle`, `paletteMode`) use the primary's value when the blend ratio is below 50%, otherwise the secondary's
+- **Boolean parameters** (`heroShape`) use the primary's value
+
+This creates subtle hybrid personalities — e.g., a blend of `neon-glow` and `organic-flow` might produce glowing shapes with heavy flow lines and earth-toned neon outlines.
+
 ## 3. Color Scheme
 
 Color generation uses the `color-scheme` library seeded from the hash, then applies archetype-specific palette modes.
@@ -172,6 +192,16 @@ The scheme detects whether the background leans warm or cool, then shifts foregr
 ### Contrast Enforcement
 
 Every shape color is checked against the background luminance. If the contrast ratio is too low, the color is lightened or darkened to ensure visibility.
+
+### Color Palette Evolution
+
+Colors aren't static across layers — they evolve. `evolveHierarchy(hierarchy, layerFraction)` applies a progressive hue rotation to the entire color hierarchy as rendering moves through layers:
+
+- **Total drift:** ±20° across the full layer stack (direction determined by the dominant color's initial hue)
+- **Per-layer rotation:** `layerFraction × 20°` applied via `hueRotate(color, degrees)`, which converts to HSL, shifts the hue, and converts back
+- **Effect:** Early layers lean toward the original palette; later layers drift toward adjacent hues on the color wheel
+
+This creates a subtle color journey across the depth of the image — warm reds in the background might shift toward orange-gold in the foreground, giving the composition a sense of temporal progression without breaking palette coherence.
 
 ## 4. Shape Affinity System
 
@@ -297,6 +327,16 @@ Symmetry is applied by drawing the canvas image onto itself with `scale(-1, 1)` 
 
 1–2 **void zones** are placed randomly. Shapes landing inside a void zone have an 85% chance of being skipped, creating breathing room in the composition.
 
+### Void Zone Decoration
+
+Void zones aren't left completely empty — they receive subtle decorative elements that acknowledge the negative space:
+
+- **Halo ring:** A thin circular stroke at the void zone's boundary using the accent color at 6–12% opacity
+- **Scattered dots (~50% chance):** 5–12 tiny dots (1–3px) scattered randomly inside the void zone at 4–10% opacity, creating a dust-like texture
+- **Inner concentric ring (~30% chance):** A smaller ring at 40–70% of the void zone radius at 3–8% opacity
+
+These decorations are subtle enough to preserve the breathing room while preventing void zones from feeling like rendering errors.
+
 ## 8. Hero Shape
 
 When the archetype enables `heroShape` and the RNG roll passes (60% chance), a dominant focal element is drawn at the first focal point:
@@ -320,6 +360,16 @@ The core of the image: `layers` passes (archetype-controlled, typically 2–5), 
 - **Size scale:** Decreases 15% per layer (later layers = smaller shapes)
 - **Atmospheric desaturation:** Later layers are progressively desaturated (up to 30%) to simulate depth
 - **Depth-of-field:** Later layers get thinner strokes (down to 40% of base width) and reduced contrast (up to 20% opacity reduction), simulating camera focus falloff
+
+### Focal Depth Boost
+
+Shapes near focal points receive enhanced detail via `focalDetailBoost()`:
+
+- **Nesting chance:** Boosted from the base 15% up to 15–30% for shapes within 25% of canvas size from a focal point
+- **Constellation chance:** Boosted from the base 12% up to 12–22% near focal points
+- **Boost strength:** Proportional to proximity — shapes right at the focal point get the full boost, shapes at the edge of the influence radius get minimal boost
+
+This creates a natural depth-of-detail effect where the areas your eye is drawn to (focal points) contain the most intricate shape compositions.
 
 ### Per-Shape Pipeline
 
@@ -379,7 +429,7 @@ Each member shape uses hierarchy colors with HSL jitter and affinity-aware rende
 
 ## 10. Render Styles
 
-Each shape is drawn using one of 14 render styles:
+Each shape is drawn using one of 15 render styles:
 
 | Style | Description |
 | ----- | ----------- |
@@ -397,6 +447,7 @@ Each shape is drawn using one of 14 render styles:
 | wood-grain | 20% base tint + clipped parallel wavy lines at a random angle, simulating wood texture |
 | marble-vein | 35% soft base + clipped branching vein lines that drift and fork, simulating marble stone |
 | fabric-weave | 15% ghost base + clipped interlocking horizontal and vertical thread lines at alternating opacities |
+| hand-drawn | Fill + 2–3 wobbly offset stroke passes simulating a hand-drawn sketch |
 
 ### Texture Fill Details
 
@@ -413,6 +464,38 @@ The 4 new texture fills (noise-grain, wood-grain, marble-vein, fabric-weave) all
 **marble-vein** draws 2–4 main veins that drift randomly downward, with ~20% chance per step of spawning a thinner branch vein. This creates the characteristic forking pattern of natural marble.
 
 **fabric-weave** draws horizontal threads at full spacing, then vertical threads at half-spacing offsets, creating an over-under weave pattern. The two thread directions use different opacities (55% vs 45%) and colors (stroke vs fill) for visual distinction.
+
+### Hand-Drawn Style
+
+The `hand-drawn` style simulates a sketchy, imprecise outline:
+
+1. **Base fill:** Standard fill of the shape
+2. **Wobbly strokes (2–3 passes):** Each pass redraws the shape's outline with a small random offset (1–3px) and slightly varied line width, creating the impression of a hand tracing the same line multiple times
+3. **Opacity variation:** Each pass uses 40–70% opacity so the overlapping strokes build up naturally
+
+This style works particularly well on organic shapes (circle, triangle, blob) where the wobble feels intentional rather than broken.
+
+### Layered Transparency / Glazing
+
+~20% of shapes receive **glazing** — 2–3 additional fill-only passes drawn immediately after the main shape:
+
+- Each pass is progressively smaller (85% → 72% → 61% of the original size)
+- Each pass is progressively more opaque (adding 5–10% opacity per pass)
+- Only the fill is redrawn (no stroke), creating a pigment-pooling effect where the center of the shape appears richer and more saturated
+
+This simulates the traditional oil painting technique of building up translucent layers to create depth and luminosity.
+
+### Motion / Energy Lines
+
+Short directional line bursts radiate from shapes to suggest movement and energy:
+
+- **Trigger:** Always for `dense-chaotic`, `cosmic`, `neon-glow`, and `bold-graphic` archetypes; ~25% random chance for others
+- **Count:** 3–6 lines per shape
+- **Length:** 8–20% of the shape's size
+- **Direction:** Radiating outward from the shape center at evenly-spaced angles with ±15° jitter
+- **Style:** Thin lines (0.5–1.5px) using the shape's stroke color at 15–35% opacity, tapering toward the ends
+
+Motion lines are drawn after the main shape layers but before symmetry mirroring, so they participate in any bilateral/quad reflections.
 
 ### Watercolor Detail
 
@@ -461,3 +544,18 @@ Only for `neon-glow`, `cosmic`, and `ethereal` archetypes. The canvas is drawn o
 ### Bloom
 
 Only for `neon-glow` and `cosmic` archetypes. The canvas is redrawn with `shadowBlur` at 30px (scaled) and white shadow color, composited via `screen` at 8% opacity. This creates a soft glow around bright areas.
+
+## 13. Signature Mark
+
+The final rendering step places a small deterministic **chop mark** (inspired by East Asian seal stamps) in the bottom-right corner of the canvas:
+
+- **RNG isolation:** Uses a separate RNG seeded with a salt of 42, so the signature is independent of all other rendering decisions
+- **Position:** Bottom-right corner with a small margin (3% of canvas size)
+- **Size:** 1.5–2.5% of the shorter canvas dimension
+- **Structure:**
+  1. Outer circle ring (stroke-only) at 12–20% opacity
+  2. 2–4 inner lines crossing the circle at unique angles derived from the hash, creating a distinctive geometric pattern
+  3. Center dot at slightly higher opacity
+- **Color:** Uses the accent color from the hierarchy at very low opacity so it's visible but never distracting
+
+The signature is unique per hash (different inner line patterns) but always recognizable as a chop mark, giving each generated image a subtle artist's stamp.

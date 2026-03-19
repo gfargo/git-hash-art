@@ -39,7 +39,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     affinities: ["circle", "blob", "hexagon", "flowerOfLife", "seedOfLife"],
     category: "basic",
     heroCandidate: false,
-    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke", "hand-drawn"],
   },
   square: {
     tier: 2,
@@ -57,7 +57,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     affinities: ["triangle", "diamond", "hexagon", "merkaba", "sriYantra"],
     category: "basic",
     heroCandidate: false,
-    bestStyles: ["fill-and-stroke", "fill-only", "watercolor"],
+    bestStyles: ["fill-and-stroke", "fill-only", "watercolor", "hand-drawn"],
   },
   hexagon: {
     tier: 1,
@@ -261,7 +261,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     affinities: ["blob", "circle", "superellipse", "waveRing"],
     category: "procedural",
     heroCandidate: false,
-    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke", "hand-drawn"],
   },
   ngon: {
     tier: 2,

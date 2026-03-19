@@ -31,7 +31,7 @@ import {
     enforceContrast,
     buildColorHierarchy,
     pickHierarchyColor, pickColorGrade,
-    type ColorHierarchy
+    evolveHierarchy, type ColorHierarchy
 } from "./canvas/colors";
 import {
     enhanceShapeGeneration,
@@ -409,6 +409,9 @@ export function renderHashArt(
   // ── 0e. Light direction — consistent shadow angle ──────────────
   const lightAngle = rng() * Math.PI * 2;
 
+  // ── 0f. Palette evolution — hue drift direction across layers ──
+  const paletteHueShift = (rng() - 0.5) * 40; // -20° to +20° total drift
+
   const scaleFactor = Math.min(width, height) / 1024;
   const adjustedMinSize = minShapeSize * scaleFactor;
   const adjustedMaxSize = maxShapeSize * scaleFactor;
@@ -598,6 +601,48 @@ export function renderHashArt(
     return [rx + (nearest.x - rx) * pull, ry + (nearest.y - ry) * pull];
   }
 
+  // ── 3b. Void zone decoration — intentional negative space ────
+  for (const zone of voidZones) {
+    // Subtle halo ring around void zones
+    ctx.globalAlpha = 0.04 + rng() * 0.04;
+    ctx.strokeStyle = hexWithAlpha(colorHierarchy.accent, 0.2);
+    ctx.lineWidth = 1.5 * scaleFactor;
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, zone.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // ~50% chance: scatter tiny dots inside the void
+    if (rng() < 0.5) {
+      const dotCount = 3 + Math.floor(rng() * 6);
+      ctx.globalAlpha = 0.06 + rng() * 0.04;
+      ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
+      for (let d = 0; d < dotCount; d++) {
+        const angle = rng() * Math.PI * 2;
+        const dist = rng() * zone.radius * 0.7;
+        const dotR = (1 + rng() * 3) * scaleFactor;
+        ctx.beginPath();
+        ctx.arc(
+          zone.x + Math.cos(angle) * dist,
+          zone.y + Math.sin(angle) * dist,
+          dotR, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+    }
+
+    // ~30% chance: thin concentric ring inside
+    if (rng() < 0.3) {
+      ctx.globalAlpha = 0.03 + rng() * 0.03;
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);
+      ctx.lineWidth = 0.5 * scaleFactor;
+      const innerR = zone.radius * (0.4 + rng() * 0.3);
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, innerR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
   // ── 4. Flow field seed values ──────────────────────────────────
   const fieldAngleBase = rng() * Math.PI * 2;
   const fieldFreq = 0.5 + rng() * 2;
@@ -690,6 +735,20 @@ export function renderHashArt(
     const dofStrokeScale = 0.4 + dofFactor * 0.6; // strokes thin out with depth
     const dofContrastReduction = layerRatio * 0.2; // colors fade toward bg
 
+    // Color palette evolution — hue-rotate the hierarchy per layer
+    const layerHierarchy = evolveHierarchy(colorHierarchy, layerRatio, paletteHueShift);
+
+    // Focal depth: shapes near focal points get more detail
+    const focalDetailBoost = (px: number, py: number): number => {
+      let minFocalDist = Infinity;
+      for (const fp of focalPoints) {
+        const d = Math.hypot(px - fp.x, py - fp.y);
+        if (d < minFocalDist) minFocalDist = d;
+      }
+      const maxDist = Math.hypot(width, height) * 0.5;
+      return Math.max(0, 1 - minFocalDist / maxDist); // 1.0 at focal, 0.0 at edges
+    };
+
     for (let i = 0; i < numShapes; i++) {
       // Position from composition mode, then focal bias
       const rawPos = getCompositionPosition(
@@ -741,9 +800,9 @@ export function renderHashArt(
         }
       }
 
-      // Positional color from hierarchy + jitter
-      let fillBase = getPositionalColor(x, y, width, height, colorHierarchy, rng);
-      const strokeBase = pickHierarchyColor(colorHierarchy, rng);
+      // Positional color from hierarchy + jitter (using evolved layer palette)
+      let fillBase = getPositionalColor(x, y, width, height, layerHierarchy, rng);
+      const strokeBase = pickHierarchyColor(layerHierarchy, rng);
 
       // Desaturate colors on later layers for depth
       if (atmosphericDesat > 0) {
@@ -853,6 +912,26 @@ export function renderHashArt(
         enhanceShapeGeneration(ctx, shape, finalX, finalY, shapeConfig);
       }
 
+      // ── Glazing — luminous multi-pass transparency on ~20% of shapes ──
+      if (rng() < 0.2 && size > adjustedMinSize * 2) {
+        const glazePasses = 2 + Math.floor(rng() * 2);
+        for (let g = 0; g < glazePasses; g++) {
+          const glazeScale = 1 - (g + 1) * 0.12; // progressively smaller
+          const glazeAlpha = 0.08 + g * 0.04; // progressively more opaque toward center
+          ctx.globalAlpha = glazeAlpha;
+          enhanceShapeGeneration(ctx, shape, finalX, finalY, {
+            fillColor: hexWithAlpha(fillColor, 0.15 + g * 0.1),
+            strokeColor: "rgba(0,0,0,0)",
+            strokeWidth: 0,
+            size: size * glazeScale,
+            rotation,
+            proportionType: "GOLDEN_RATIO",
+            renderStyle: "fill-only",
+            rng,
+          });
+        }
+      }
+
       shapePositions.push({ x: finalX, y: finalY, size, shape });
 
       // ── 5c. Size echo — large shapes spawn trailing smaller copies ──
@@ -884,7 +963,10 @@ export function renderHashArt(
       }
 
       // ── 5d. Recursive nesting ──────────────────────────────────
-      if (size > adjustedMaxSize * 0.4 && rng() < 0.15) {
+      // Focal depth: shapes near focal points get more detail
+      const focalProximity = focalDetailBoost(finalX, finalY);
+      const nestingChance = 0.15 + focalProximity * 0.15; // 15-30% near focal
+      if (size > adjustedMaxSize * 0.4 && rng() < nestingChance) {
         const innerCount = 1 + Math.floor(rng() * 3);
         for (let n = 0; n < innerCount; n++) {
           // Pick inner shape from palette affinities
@@ -920,7 +1002,8 @@ export function renderHashArt(
       }
 
       // ── 5e. Shape constellations — pre-composed groups ─────────
-      if (size > adjustedMaxSize * 0.35 && rng() < 0.12) {
+      const constellationChance = 0.12 + focalProximity * 0.1; // 12-22% near focal
+      if (size > adjustedMaxSize * 0.35 && rng() < constellationChance) {
         const constellation = CONSTELLATIONS[Math.floor(rng() * CONSTELLATIONS.length)];
         const members = constellation.build(rng, size);
         const groupRotation = rng() * Math.PI * 2;
@@ -1047,7 +1130,41 @@ export function renderHashArt(
     }
   }
 
-  // ── 6b. Apply symmetry mirroring ─────────────────────────────────
+  // ── 6b. Motion/energy lines — short directional bursts ─────────
+  const energyArchetypes = ["dense-chaotic", "cosmic", "neon-glow", "bold-graphic"];
+  const hasEnergyLines = energyArchetypes.some(a => archetype.name.includes(a)) || rng() < 0.25;
+  if (hasEnergyLines && shapePositions.length > 0) {
+    const energyCount = 5 + Math.floor(rng() * 10);
+    ctx.lineCap = "round";
+    for (let e = 0; e < energyCount; e++) {
+      // Pick a random shape to radiate from
+      const source = shapePositions[Math.floor(rng() * shapePositions.length)];
+      const burstCount = 2 + Math.floor(rng() * 4);
+      const baseAngle = flowAngle(source.x, source.y);
+
+      for (let b = 0; b < burstCount; b++) {
+        const angle = baseAngle + (rng() - 0.5) * 1.2;
+        const lineLen = (source.size * 0.3 + rng() * source.size * 0.5) * scaleFactor * 0.3;
+        const startDist = source.size * 0.5;
+        const sx = source.x + Math.cos(angle) * startDist;
+        const sy = source.y + Math.sin(angle) * startDist;
+        const ex = sx + Math.cos(angle) * lineLen;
+        const ey = sy + Math.sin(angle) * lineLen;
+
+        ctx.globalAlpha = 0.04 + rng() * 0.06;
+        ctx.strokeStyle = hexWithAlpha(
+          enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum), 0.3,
+        );
+        ctx.lineWidth = (0.5 + rng() * 1.5) * scaleFactor;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ── 6c. Apply symmetry mirroring ─────────────────────────────────
   if (symmetryMode !== "none") {
     const canvas = ctx.canvas;
     ctx.save();
@@ -1168,6 +1285,50 @@ export function renderHashArt(
     ctx.drawImage(canvas, 0, 0, width, height);
     ctx.restore();
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ── 11. Signature mark — unique geometric chop from hash prefix ──
+  {
+    const sigRng = createRng(seedFromHash(gitHash, 42));
+    const sigSize = Math.min(width, height) * 0.025;
+    // Bottom-right corner with padding
+    const sigX = width - sigSize * 2.5;
+    const sigY = height - sigSize * 2.5;
+    const sigSegments = 4 + Math.floor(sigRng() * 4); // 4-7 segments
+    const sigColor = hexWithAlpha(colorHierarchy.accent, 0.15);
+
+    ctx.save();
+    ctx.globalAlpha = 0.12 + sigRng() * 0.08;
+    ctx.translate(sigX, sigY);
+    ctx.strokeStyle = sigColor;
+    ctx.fillStyle = hexWithAlpha(colorHierarchy.dominant, 0.06);
+    ctx.lineWidth = Math.max(0.5, 0.8 * scaleFactor);
+
+    // Outer ring
+    ctx.beginPath();
+    ctx.arc(0, 0, sigSize, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fill();
+
+    // Inner geometric pattern — unique per hash
+    ctx.beginPath();
+    for (let s = 0; s < sigSegments; s++) {
+      const angle1 = sigRng() * Math.PI * 2;
+      const angle2 = sigRng() * Math.PI * 2;
+      const r1 = sigSize * (0.2 + sigRng() * 0.6);
+      const r2 = sigSize * (0.2 + sigRng() * 0.6);
+      ctx.moveTo(Math.cos(angle1) * r1, Math.sin(angle1) * r1);
+      ctx.lineTo(Math.cos(angle2) * r2, Math.sin(angle2) * r2);
+    }
+    ctx.stroke();
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(0, 0, sigSize * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = sigColor;
+    ctx.fill();
+
+    ctx.restore();
   }
 
   ctx.globalAlpha = 1;
