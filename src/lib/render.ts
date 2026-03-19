@@ -50,7 +50,7 @@ import {
 } from "./canvas/shapes/affinity";
 import { createRng, seedFromHash, createSimplexNoise, createFBM } from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
-import { selectArchetype, type BackgroundStyle } from "./archetypes";
+import { selectArchetype, type BackgroundStyle, type CompositionMode } from "./archetypes";
 
 
 // ── Shape categories for weighted selection (legacy fallback) ───────
@@ -69,15 +69,7 @@ const SACRED_SHAPES = [
 
 // ── Composition modes ───────────────────────────────────────────────
 
-type CompositionMode =
-  | "radial"
-  | "flow-field"
-  | "spiral"
-  | "grid-subdivision"
-  | "clustered"
-  | "golden-spiral";
-
-const COMPOSITION_MODES: CompositionMode[] = [
+const ALL_COMPOSITION_MODES: CompositionMode[] = [
   "radial",
   "flow-field",
   "spiral",
@@ -193,7 +185,80 @@ function isInVoidZone(
   return false;
 }
 
-// ── Helper: density check ───────────────────────────────────────────
+// ── Spatial hash grid for O(1) density checks and nearest-neighbor ──
+
+class SpatialGrid {
+  private cells: Map<string, Array<{ x: number; y: number; size: number; shape: string }>>;
+  private cellSize: number;
+
+  constructor(cellSize: number) {
+    this.cells = new Map();
+    this.cellSize = cellSize;
+  }
+
+  private key(cx: number, cy: number): string {
+    return `${cx},${cy}`;
+  }
+
+  insert(item: { x: number; y: number; size: number; shape: string }): void {
+    const cx = Math.floor(item.x / this.cellSize);
+    const cy = Math.floor(item.y / this.cellSize);
+    const k = this.key(cx, cy);
+    const cell = this.cells.get(k);
+    if (cell) cell.push(item);
+    else this.cells.set(k, [item]);
+  }
+
+  /** Count items within radius of (x, y) */
+  countNear(x: number, y: number, radius: number): number {
+    const r2 = radius * radius;
+    const minCx = Math.floor((x - radius) / this.cellSize);
+    const maxCx = Math.floor((x + radius) / this.cellSize);
+    const minCy = Math.floor((y - radius) / this.cellSize);
+    const maxCy = Math.floor((y + radius) / this.cellSize);
+    let count = 0;
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      for (let cy = minCy; cy <= maxCy; cy++) {
+        const cell = this.cells.get(this.key(cx, cy));
+        if (!cell) continue;
+        for (const p of cell) {
+          const dx = x - p.x;
+          const dy = y - p.y;
+          if (dx * dx + dy * dy < r2) count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /** Find nearest item to (x, y) */
+  findNearest(x: number, y: number, searchRadius: number): { x: number; y: number; size: number } | null {
+    const minCx = Math.floor((x - searchRadius) / this.cellSize);
+    const maxCx = Math.floor((x + searchRadius) / this.cellSize);
+    const minCy = Math.floor((y - searchRadius) / this.cellSize);
+    const maxCy = Math.floor((y + searchRadius) / this.cellSize);
+    let nearest: { x: number; y: number; size: number } | null = null;
+    let bestDist2 = Infinity;
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      for (let cy = minCy; cy <= maxCy; cy++) {
+        const cell = this.cells.get(this.key(cx, cy));
+        if (!cell) continue;
+        for (const p of cell) {
+          const dx = x - p.x;
+          const dy = y - p.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 0 && d2 < bestDist2) {
+            bestDist2 = d2;
+            nearest = p;
+          }
+        }
+      }
+    }
+    return nearest;
+  }
+}
+
+// ── Helper: density check (legacy wrapper) ──────────────────────────
 
 function localDensity(
   x: number,
@@ -498,44 +563,45 @@ export function renderHashArt(
     const patternColor = hexWithAlpha(colorHierarchy.dominant, 0.15);
 
     if (bgPatternRoll < 0.2) {
-      // Dot grid
+      // Dot grid — batched into a single path
       const dotSpacing = Math.max(8, Math.min(width, height) * (0.015 + rng() * 0.015));
       const dotR = dotSpacing * 0.08;
       ctx.globalAlpha = patternOpacity;
       ctx.fillStyle = patternColor;
+      ctx.beginPath();
       for (let px = 0; px < width; px += dotSpacing) {
         for (let py = 0; py < height; py += dotSpacing) {
-          ctx.beginPath();
+          ctx.moveTo(px + dotR, py);
           ctx.arc(px, py, dotR, 0, Math.PI * 2);
-          ctx.fill();
         }
       }
+      ctx.fill();
     } else if (bgPatternRoll < 0.4) {
-      // Diagonal lines
+      // Diagonal lines — batched into a single path
       const lineSpacing = Math.max(6, Math.min(width, height) * (0.02 + rng() * 0.02));
       ctx.globalAlpha = patternOpacity;
       ctx.strokeStyle = patternColor;
       ctx.lineWidth = 0.5 * scaleFactor;
       const diag = Math.hypot(width, height);
+      ctx.beginPath();
       for (let d = -diag; d < diag; d += lineSpacing) {
-        ctx.beginPath();
         ctx.moveTo(d, 0);
         ctx.lineTo(d + height, height);
-        ctx.stroke();
       }
+      ctx.stroke();
     } else {
-      // Tessellation — hexagonal grid of tiny shapes
+      // Tessellation — hexagonal grid, batched into a single path
       const tessSize = Math.max(10, Math.min(width, height) * (0.025 + rng() * 0.02));
       const tessH = tessSize * Math.sqrt(3);
       ctx.globalAlpha = patternOpacity * 0.7;
       ctx.strokeStyle = patternColor;
       ctx.lineWidth = 0.4 * scaleFactor;
+      ctx.beginPath();
       for (let row = 0; row * tessH < height + tessH; row++) {
         const offsetX = (row % 2) * tessSize * 0.75;
         for (let col = 0; col * tessSize * 1.5 < width + tessSize * 1.5; col++) {
           const hx = col * tessSize * 1.5 + offsetX;
           const hy = row * tessH;
-          ctx.beginPath();
           for (let s = 0; s < 6; s++) {
             const angle = (Math.PI / 3) * s - Math.PI / 6;
             const vx = hx + Math.cos(angle) * tessSize * 0.5;
@@ -544,17 +610,18 @@ export function renderHashArt(
             else ctx.lineTo(vx, vy);
           }
           ctx.closePath();
-          ctx.stroke();
         }
       }
+      ctx.stroke();
     }
     ctx.restore();
   }
   ctx.globalCompositeOperation = "source-over";
 
-  // ── 2. Composition mode ────────────────────────────────────────
-  const compositionMode =
-    COMPOSITION_MODES[Math.floor(rng() * COMPOSITION_MODES.length)];
+  // ── 2. Composition mode — archetype-aware selection ──────────────
+  const compositionMode: CompositionMode = rng() < 0.7
+    ? archetype.preferredCompositions[Math.floor(rng() * archetype.preferredCompositions.length)]
+    : ALL_COMPOSITION_MODES[Math.floor(rng() * ALL_COMPOSITION_MODES.length)];
 
   // ── 2b. Symmetry mode — ~25% of hashes trigger mirroring ──────
   type SymmetryMode = "none" | "bilateral-x" | "bilateral-y" | "quad";
@@ -564,7 +631,7 @@ export function renderHashArt(
     symRoll < 0.20 ? "bilateral-y" :
     symRoll < 0.25 ? "quad" : "none";
 
-  // ── 3. Focal points + void zones ───────────────────────────────
+  // ── 3. Focal points + void zones (archetype-aware) ───────────────
   const THIRDS_POINTS = [
     { x: 1 / 3, y: 1 / 3 },
     { x: 2 / 3, y: 1 / 3 },
@@ -590,14 +657,30 @@ export function renderHashArt(
     }
   }
 
-  const numVoids = Math.floor(rng() * 2) + 1;
+  // Archetype-aware void zones: dense archetypes get fewer/no voids,
+  // minimal archetypes get golden-ratio positioned voids
+  const PHI = (1 + Math.sqrt(5)) / 2;
+  const isMinimalArchetype = archetype.gridSize <= 3;
+  const isDenseArchetype = archetype.gridSize >= 8;
+  const numVoids = isDenseArchetype ? 0 : (Math.floor(rng() * 2) + 1);
   const voidZones: Array<{ x: number; y: number; radius: number }> = [];
   for (let v = 0; v < numVoids; v++) {
-    voidZones.push({
-      x: width * (0.15 + rng() * 0.7),
-      y: height * (0.15 + rng() * 0.7),
-      radius: Math.min(width, height) * (0.06 + rng() * 0.1),
-    });
+    if (isMinimalArchetype) {
+      // Place voids at golden-ratio positions for intentional negative space
+      const gx = (v === 0) ? 1 / PHI : 1 - 1 / PHI;
+      const gy = (v === 0) ? 1 - 1 / PHI : 1 / PHI;
+      voidZones.push({
+        x: width * (gx + (rng() - 0.5) * 0.05),
+        y: height * (gy + (rng() - 0.5) * 0.05),
+        radius: Math.min(width, height) * (0.08 + rng() * 0.08),
+      });
+    } else {
+      voidZones.push({
+        x: width * (0.15 + rng() * 0.7),
+        y: height * (0.15 + rng() * 0.7),
+        radius: Math.min(width, height) * (0.06 + rng() * 0.1),
+      });
+    }
   }
 
   function applyFocalBias(rx: number, ry: number): [number, number] {
@@ -681,6 +764,10 @@ export function renderHashArt(
   // Track all placed shapes for density checks and connecting curves
   const shapePositions: Array<{ x: number; y: number; size: number; shape: string }> = [];
 
+  // Spatial grid for O(1) density and nearest-neighbor lookups
+  const densityCheckRadius = Math.min(width, height) * 0.08;
+  const spatialGrid = new SpatialGrid(densityCheckRadius);
+
   // Hero avoidance radius — shapes near the hero orient toward it
   let heroCenter: { x: number; y: number; size: number } | null = null;
 
@@ -727,11 +814,11 @@ export function renderHashArt(
 
     heroCenter = { x: heroFocal.x, y: heroFocal.y, size: heroSize };
     shapePositions.push({ x: heroFocal.x, y: heroFocal.y, size: heroSize, shape: heroShape });
+    spatialGrid.insert({ x: heroFocal.x, y: heroFocal.y, size: heroSize, shape: heroShape });
   }
 
 
   // ── 5. Shape layers ────────────────────────────────────────────
-  const densityCheckRadius = Math.min(width, height) * 0.08;
   const maxLocalDensity = Math.ceil(shapesPerLayer * 0.15);
 
   for (let layer = 0; layer < layers; layer++) {
@@ -792,7 +879,7 @@ export function renderHashArt(
       if (isInVoidZone(x, y, voidZones)) {
         if (rng() < 0.85) continue;
       }
-      if (localDensity(x, y, shapePositions, densityCheckRadius) > maxLocalDensity) {
+      if (spatialGrid.countNear(x, y, densityCheckRadius) > maxLocalDensity) {
         if (rng() < 0.6) continue;
       }
 
@@ -881,17 +968,11 @@ export function renderHashArt(
       let finalX = x;
       let finalY = y;
       if (shapePositions.length > 0 && rng() < 0.25) {
-        // Find nearest placed shape
-        let nearestDist = Infinity;
-        let nearestPos: { x: number; y: number; size: number } | null = null;
-        for (const sp of shapePositions) {
-          const d = Math.hypot(x - sp.x, y - sp.y);
-          if (d < nearestDist && d > 0) {
-            nearestDist = d;
-            nearestPos = sp;
-          }
-        }
+        // Use spatial grid for O(1) nearest-neighbor lookup
+        const searchRadius = adjustedMaxSize * 3;
+        const nearestPos = spatialGrid.findNearest(x, y, searchRadius);
         if (nearestPos) {
+          const nearestDist = Math.hypot(x - nearestPos.x, y - nearestPos.y);
           // Target distance: edges kissing (sum of half-sizes)
           const targetDist = (size + nearestPos.size) * 0.5;
           if (nearestDist > targetDist * 0.5 && nearestDist < targetDist * 3) {
@@ -960,6 +1041,7 @@ export function renderHashArt(
       }
 
       shapePositions.push({ x: finalX, y: finalY, size, shape });
+      spatialGrid.insert({ x: finalX, y: finalY, size, shape });
 
       // ── 5c. Size echo — large shapes spawn trailing smaller copies ──
       if (size > adjustedMaxSize * 0.5 && rng() < 0.2) {
@@ -986,6 +1068,7 @@ export function renderHashArt(
             rng,
           });
           shapePositions.push({ x: echoX, y: echoY, size: echoSize, shape });
+          spatialGrid.insert({ x: echoX, y: echoY, size: echoSize, shape });
         }
       }
 
@@ -1069,6 +1152,50 @@ export function renderHashArt(
             rng,
           });
           shapePositions.push({ x: mx, y: my, size: member.size, shape: memberShape });
+          spatialGrid.insert({ x: mx, y: my, size: member.size, shape: memberShape });
+        }
+      }
+
+      // ── 5f. Rhythm placement — deliberate geometric progressions ──
+      // ~12% of medium-large shapes spawn a rhythmic sequence
+      if (size > adjustedMaxSize * 0.25 && rng() < 0.12) {
+        const rhythmCount = 3 + Math.floor(rng() * 4); // 3-6 shapes
+        const rhythmAngle = rng() * Math.PI * 2;
+        const rhythmSpacing = size * (0.8 + rng() * 0.6);
+        const rhythmDecay = 0.7 + rng() * 0.15; // size multiplier per step
+        const rhythmShape = shape; // same shape for visual rhythm
+
+        let rhythmSize = size * 0.6;
+        for (let r = 0; r < rhythmCount; r++) {
+          const rx = finalX + Math.cos(rhythmAngle) * rhythmSpacing * (r + 1);
+          const ry = finalY + Math.sin(rhythmAngle) * rhythmSpacing * (r + 1);
+
+          if (rx < 0 || rx > width || ry < 0 || ry > height) break;
+          if (isInVoidZone(rx, ry, voidZones)) break;
+
+          rhythmSize *= rhythmDecay;
+          if (rhythmSize < adjustedMinSize) break;
+
+          const rhythmAlpha = layerOpacity * (0.6 - r * 0.08);
+          ctx.globalAlpha = Math.max(0.1, rhythmAlpha);
+
+          const rhythmFill = hexWithAlpha(
+            jitterColorHSL(pickHierarchyColor(layerHierarchy, rng), rng, 5, 0.04),
+            fillAlpha * 0.7,
+          );
+
+          enhanceShapeGeneration(ctx, rhythmShape, rx, ry, {
+            fillColor: rhythmFill,
+            strokeColor: hexWithAlpha(strokeColor, 0.5),
+            strokeWidth: strokeWidth * 0.7,
+            size: rhythmSize,
+            rotation: rotation + (r + 1) * 12,
+            proportionType: "GOLDEN_RATIO",
+            renderStyle: finalRenderStyle,
+            rng,
+          });
+          shapePositions.push({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
+          spatialGrid.insert({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
         }
       }
     }
@@ -1077,7 +1204,7 @@ export function renderHashArt(
   // Reset blend mode for post-processing passes
   ctx.globalCompositeOperation = "source-over";
 
-  // ── 5f. Layered masking / cutout portals ───────────────────────
+  // ── 5g. Layered masking / cutout portals ───────────────────────
   // ~18% of images get 1-3 portal windows that paint over foreground
   // with a tinted background wash, creating a "peek through" effect.
   if (rng() < 0.18 && shapePositions.length > 3) {
@@ -1172,6 +1299,13 @@ export function renderHashArt(
       fy += Math.sin(angle) * stepLen;
 
       if (fx < 0 || fx > width || fy < 0 || fy > height) break;
+
+      // Skip segments that pass through void zones
+      if (isInVoidZone(fx, fy, voidZones)) {
+        prevX = fx;
+        prevY = fy;
+        continue;
+      }
 
       const t = s / steps;
       // Taper + pressure
@@ -1279,32 +1413,65 @@ export function renderHashArt(
   }
 
 
-  // ── 7. Noise texture overlay ───────────────────────────────────
+  // ── 7. Noise texture overlay — batched via ImageData ─────────────
   const noiseRng = createRng(seedFromHash(gitHash, 777));
   const noiseDensity = Math.floor((width * height) / 800);
-  for (let i = 0; i < noiseDensity; i++) {
-    const nx = noiseRng() * width;
-    const ny = noiseRng() * height;
-    const brightness = noiseRng() > 0.5 ? 255 : 0;
-    const alpha = 0.01 + noiseRng() * 0.03;
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = `rgba(${brightness},${brightness},${brightness},1)`;
-    ctx.fillRect(nx, ny, 1 * scaleFactor, 1 * scaleFactor);
+  try {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const pixelScale = Math.max(1, Math.round(scaleFactor));
+    for (let i = 0; i < noiseDensity; i++) {
+      const nx = Math.floor(noiseRng() * width);
+      const ny = Math.floor(noiseRng() * height);
+      const brightness = noiseRng() > 0.5 ? 255 : 0;
+      const alpha = Math.floor((0.01 + noiseRng() * 0.03) * 255);
+      // Write a small block of pixels for scale
+      for (let dy = 0; dy < pixelScale && ny + dy < height; dy++) {
+        for (let dx = 0; dx < pixelScale && nx + dx < width; dx++) {
+          const idx = ((ny + dy) * width + (nx + dx)) * 4;
+          // Alpha-blend the noise dot onto existing pixel data
+          const srcA = alpha / 255;
+          const invA = 1 - srcA;
+          data[idx] = Math.round(data[idx] * invA + brightness * srcA);
+          data[idx + 1] = Math.round(data[idx + 1] * invA + brightness * srcA);
+          data[idx + 2] = Math.round(data[idx + 2] * invA + brightness * srcA);
+          // Keep existing alpha
+        }
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+  } catch {
+    // Fallback for environments where getImageData isn't available (e.g. some OffscreenCanvas)
+    for (let i = 0; i < noiseDensity; i++) {
+      const nx = noiseRng() * width;
+      const ny = noiseRng() * height;
+      const brightness = noiseRng() > 0.5 ? 255 : 0;
+      const alpha = 0.01 + noiseRng() * 0.03;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = `rgba(${brightness},${brightness},${brightness},1)`;
+      ctx.fillRect(nx, ny, 1 * scaleFactor, 1 * scaleFactor);
+    }
   }
 
   // ── 8. Vignette — darken edges to draw the eye inward ───────────
   ctx.globalAlpha = 1;
   const vignetteStrength = 0.25 + rng() * 0.2;
   const vigGrad = ctx.createRadialGradient(cx, cy, Math.min(width, height) * 0.3, cx, cy, bgRadius);
+  // Tint vignette based on background: warm sepia for light, cool blue for dark
+  const isLightBg = bgLum > 0.5;
+  const vignetteColor = isLightBg
+    ? `rgba(80,60,30,${vignetteStrength.toFixed(3)})`   // warm sepia
+    : `rgba(0,0,0,${vignetteStrength.toFixed(3)})`;      // classic dark
   vigGrad.addColorStop(0, "rgba(0,0,0,0)");
   vigGrad.addColorStop(0.6, "rgba(0,0,0,0)");
-  vigGrad.addColorStop(1, `rgba(0,0,0,${vignetteStrength.toFixed(3)})`);
+  vigGrad.addColorStop(1, vignetteColor);
   ctx.fillStyle = vigGrad;
   ctx.fillRect(0, 0, width, height);
 
-  // ── 9. Organic connecting curves ───────────────────────────────
+  // ── 9. Organic connecting curves — proximity-aware ───────────────
   if (shapePositions.length > 1) {
     const numCurves = Math.floor((8 * (width * height)) / (1024 * 1024));
+    const maxCurveDist = Math.hypot(width, height) * 0.2; // only connect nearby shapes
     ctx.lineWidth = 0.8 * scaleFactor;
 
     for (let i = 0; i < numCurves; i++) {
@@ -1316,11 +1483,15 @@ export function renderHashArt(
       const a = shapePositions[idxA];
       const b = shapePositions[idxB];
 
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy);
+
+      // Skip connections between distant shapes
+      if (dist > maxCurveDist) continue;
+
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
       const bulge = (rng() - 0.5) * dist * 0.4;
 
       const cpx = mx + (-dy / (dist || 1)) * bulge;
@@ -1532,13 +1703,31 @@ export function renderHashArt(
     ctx.restore();
   }
 
-  // ── 11. Signature mark — unique geometric chop from hash prefix ──
+  // ── 11. Signature mark — placed in the least-dense corner ──────
   {
     const sigRng = createRng(seedFromHash(gitHash, 42));
     const sigSize = Math.min(width, height) * 0.025;
-    // Bottom-right corner with padding
-    const sigX = width - sigSize * 2.5;
-    const sigY = height - sigSize * 2.5;
+    const sigMargin = sigSize * 2.5;
+
+    // Find the corner with the lowest local density
+    const cornerCandidates = [
+      { x: sigMargin, y: sigMargin },                         // top-left
+      { x: width - sigMargin, y: sigMargin },                 // top-right
+      { x: sigMargin, y: height - sigMargin },                // bottom-left
+      { x: width - sigMargin, y: height - sigMargin },        // bottom-right
+    ];
+    let bestCorner = cornerCandidates[3]; // default: bottom-right
+    let minDensity = Infinity;
+    for (const corner of cornerCandidates) {
+      const density = spatialGrid.countNear(corner.x, corner.y, sigSize * 5);
+      if (density < minDensity) {
+        minDensity = density;
+        bestCorner = corner;
+      }
+    }
+
+    const sigX = bestCorner.x;
+    const sigY = bestCorner.y;
     const sigSegments = 4 + Math.floor(sigRng() * 4); // 4-7 segments
     const sigColor = hexWithAlpha(colorHierarchy.accent, 0.15);
 
