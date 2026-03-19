@@ -149,6 +149,77 @@ export class SacredColorScheme {
   }
 
   /**
+   * Returns a palette shaped by the given palette mode.
+   * Falls back to getColors() for "harmonious".
+   */
+  getColorsByMode(mode: string): string[] {
+    const baseHue = this.seed % 360;
+    switch (mode) {
+      case "monochrome": {
+        // Single hue, 5 lightness steps
+        const s = 0.5 + this.rng() * 0.3;
+        return [0.15, 0.3, 0.45, 0.6, 0.75].map((l) =>
+          hslToHex(baseHue, s, l),
+        );
+      }
+      case "duotone": {
+        // Two contrasting colors + tints
+        const hue2 = (baseHue + 150 + this.rng() * 60) % 360;
+        return [
+          hslToHex(baseHue, 0.7, 0.5),
+          hslToHex(baseHue, 0.6, 0.7),
+          hslToHex(hue2, 0.7, 0.5),
+          hslToHex(hue2, 0.6, 0.7),
+        ];
+      }
+      case "neon": {
+        // High saturation, vivid colors
+        const hues = [baseHue, (baseHue + 90) % 360, (baseHue + 180) % 360, (baseHue + 270) % 360];
+        return hues.map((h) => hslToHex(h, 1.0, 0.55 + this.rng() * 0.1));
+      }
+      case "pastel-light": {
+        // Soft pastels
+        const hues = [baseHue, (baseHue + 60) % 360, (baseHue + 120) % 360, (baseHue + 200) % 360];
+        return hues.map((h) => hslToHex(h, 0.4 + this.rng() * 0.2, 0.75 + this.rng() * 0.1));
+      }
+      case "earth": {
+        // Warm muted naturals: browns, olives, terracotta, sage
+        const earthHues = [25, 35, 45, 80, 150]; // orange-brown to olive to sage
+        return earthHues.map((h) =>
+          hslToHex(h + this.rng() * 15, 0.25 + this.rng() * 0.2, 0.35 + this.rng() * 0.2),
+        );
+      }
+      case "high-contrast": {
+        // Black, white, and one accent color
+        const accent = hslToHex(baseHue, 0.9, 0.5);
+        return ["#111111", "#eeeeee", accent, hslToHex(baseHue, 0.7, 0.35)];
+      }
+      case "harmonious":
+      default:
+        return this.getColors();
+    }
+  }
+
+  /**
+   * Returns background colors appropriate for the given palette mode.
+   */
+  getBackgroundColorsByMode(mode: string): [string, string] {
+    switch (mode) {
+      case "pastel-light":
+        return [hslToHex(this.seed % 360, 0.15, 0.92), hslToHex((this.seed + 30) % 360, 0.1, 0.88)];
+      case "high-contrast":
+      case "monochrome-ink":
+        return ["#f5f5f0", "#e8e8e0"];
+      case "neon":
+        return ["#0a0a12", "#050510"];
+      case "earth":
+        return [this.darken(hslToHex(35, 0.3, 0.25), 0.8), this.darken(hslToHex(25, 0.25, 0.2), 0.7)];
+      default:
+        return this.getBackgroundColors();
+    }
+  }
+
+  /**
    * Returns two background colors derived from the hash — darker variants
    * of the base scheme, temperature-shifted for warm/cool contrast.
    */

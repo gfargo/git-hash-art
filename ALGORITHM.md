@@ -9,20 +9,23 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Color Scheme (hash-driven variation + scheme type + temperature mode)
+  ├─► Archetype Selection (1 of 10 visual personalities)
   │
-  └─► Rendering Pipeline
+  ├─► Color Scheme (palette mode from archetype + temperature mode)
+  │
+  └─► Rendering Pipeline (parameters overridden by archetype)
        │
-       1.  Background Layer (radial gradient, temperature-shifted)
+       0.  Archetype Override (gridSize, layers, opacity, sizes, styles)
+       1.  Background Layer (7 styles: radial, linear, solid, multi-stop)
        1b. Layered Background (faint shapes + concentric rings)
        2.  Composition Mode Selection
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones
        4.  Flow Field Initialization
-       4b. Hero Shape (large focal anchor, ~60% of images)
-       5.  Shape Layers (× N layers)
+       4b. Hero Shape (large focal anchor, archetype-controlled)
+       5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
-       │   ├─ Render Style (fill+stroke, wireframe, dashed, watercolor, hatched, incomplete, etc.)
+       │   ├─ Render Style (archetype-preferred + random mix)
        │   ├─ Position (composition mode + focal bias + density check)
        │   ├─ Shape Selection (layer-weighted)
        │   ├─ Atmospheric Depth (desaturation on later layers)
@@ -30,7 +33,7 @@ Hash String
        │   ├─ Styling (transparency, glow, gradients, color jitter)
        │   ├─ Organic Edges (~15% watercolor bleed)
        │   └─ Recursive Nesting (~15% of large shapes)
-       6.  Flow-Line Pass (tapered brush strokes)
+       6.  Flow-Line Pass (tapered brush strokes, archetype-scaled)
        6b. Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        7.  Noise Texture Overlay
        8.  Vignette (radial edge darkening)
@@ -48,7 +51,44 @@ rng() → float in [0, 1)
 
 The old approach extracted 2-char hex pairs from the hash (only ~20 unique values in a 40-char hash). Mulberry32 produces a full 32-bit uniform stream from any seed, eliminating correlation artifacts.
 
-## 2. Color Scheme
+## 2. Archetype System
+
+Before any rendering begins, the hash deterministically selects one of 10 **visual archetypes** — fundamentally different rendering personalities that override key parameters. This is the primary mechanism for visual diversity: two hashes that select different archetypes will look like they came from entirely different generators.
+
+Each archetype controls:
+
+| Parameter | Effect |
+|-----------|--------|
+| `gridSize` | Shape density (2 = sparse, 9 = packed) |
+| `layers` | Rendering depth (2 = flat, 5 = deep) |
+| `baseOpacity` / `opacityReduction` | Transparency character |
+| `minShapeSize` / `maxShapeSize` | Scale range |
+| `backgroundStyle` | One of 7 background rendering modes |
+| `paletteMode` | One of 7 color palette strategies |
+| `preferredStyles` | Weighted render style selection |
+| `flowLineMultiplier` | Flow line density (0 = none, 4 = heavy) |
+| `heroShape` | Whether to draw a dominant focal shape |
+| `glowMultiplier` | Glow probability scaling (0 = none, 3 = heavy) |
+| `sizePower` | Size distribution curve (0.5 = uniform, 2.5 = many tiny) |
+
+### The 10 Archetypes
+
+| Archetype | Character | Background | Palette | Key Traits |
+|-----------|-----------|------------|---------|------------|
+| **dense-chaotic** | Packed, energetic | radial-dark | harmonious | 9×9 grid, 5 layers, heavy flow lines, low glow |
+| **minimal-spacious** | Clean, deliberate | solid-light | duotone | 2×2 grid, 2 layers, large shapes, no glow |
+| **organic-flow** | Natural, flowing | radial-dark | earth | Heavy flow lines (4×), watercolor style, no hero |
+| **geometric-precision** | Technical, structured | solid-dark | high-contrast | Stroke-only/dashed/hatched styles, no flow lines |
+| **ethereal** | Dreamy, luminous | radial-light | pastel-light | High glow (2×), watercolor, hero shape |
+| **bold-graphic** | Poster-like, impactful | linear-diagonal | duotone | 2 layers, very large shapes, no flow lines |
+| **neon-glow** | Electric, vibrant | solid-dark | neon | Heavy glow (3×), stroke-heavy styles, hero shape |
+| **monochrome-ink** | Pen-and-ink, textural | solid-light | monochrome | Hatched/incomplete styles, no glow |
+| **cosmic** | Deep space, vast | radial-dark | neon | 8×8 grid, 5 layers, heavy glow, many tiny shapes |
+| **classic** | Balanced, familiar | radial-dark | harmonious | Preserves the original rendering look |
+
+Archetype values serve as defaults — explicit user config always wins. The `classic` archetype preserves backward compatibility with the original rendering style.
+
+## 3. Color Scheme
 
 The `SacredColorScheme` class derives three harmonious palettes from the hash:
 
@@ -59,6 +99,22 @@ The `SacredColorScheme` class derives three harmonious palettes from the hash:
 | Triadic | hue = seed + 120° | Additional variety |
 
 These are merged and deduplicated into a single 6-8 color palette. Background colors are darkened variants (65% and 55% brightness) of the base scheme, with optional temperature shifting.
+
+### Palette Modes
+
+The archetype's `paletteMode` reshapes the color palette to match the visual personality:
+
+| Mode | Colors | Character |
+|------|--------|-----------|
+| **harmonious** | Full base + complementary + triadic | Rich, balanced (default) |
+| **monochrome** | Single hue, 5 lightness steps | Elegant, focused |
+| **duotone** | Two contrasting hues + tints | Bold, graphic |
+| **neon** | 4 hues at full saturation | Electric, vivid |
+| **pastel-light** | 4 hues at low saturation, high lightness | Soft, dreamy |
+| **earth** | Warm muted naturals (browns, olives, sage) | Organic, grounded |
+| **high-contrast** | Black + white + one accent | Technical, stark |
+
+Each mode also provides matching background colors (e.g., neon gets near-black backgrounds, pastel-light gets warm off-whites).
 
 ### Temperature Contrast
 
@@ -95,9 +151,21 @@ Scheme types also vary: `analogic`, `mono`, `contrast`, `triade`, `tetrade`. The
 - **`shiftTemperature(hex, target, amount)`** — shifts hue toward warm (orange) or cool (blue)
 - **Positional blending** — shape fill color is biased by canvas position, creating smooth color flow across the image
 
-## 3. Background
+## 4. Background
 
-A radial gradient fills the canvas from center to corners using two darkened base-scheme colors. This creates depth before any shapes are drawn.
+The archetype's `backgroundStyle` selects one of 7 rendering modes:
+
+| Style | Description |
+|-------|-------------|
+| **radial-dark** | Radial gradient from dark center to darker edges (original default) |
+| **radial-light** | Light off-white center fading to the base palette |
+| **linear-horizontal** | Left-to-right gradient between two palette colors |
+| **linear-diagonal** | Corner-to-corner gradient with color reversal |
+| **solid-dark** | Flat dark color fill |
+| **solid-light** | Flat warm off-white fill |
+| **multi-stop** | 3-4 color gradient with a darkened mid-palette accent |
+
+This single change has an outsized impact on visual diversity — a solid-light background with monochrome shapes looks nothing like a radial-dark background with neon glow.
 
 ### Layered Background
 
@@ -108,7 +176,7 @@ After the gradient, a second pass adds visual texture to the background:
 
 This prevents the background from feeling flat and gives the image depth before the main shape layers begin.
 
-## 4. Composition Modes
+## 5. Composition Modes
 
 The hash deterministically selects one of five composition strategies that control how shapes are positioned on the canvas:
 
@@ -135,7 +203,7 @@ Each mode produces fundamentally different visual character from the same shape 
 
 Symmetry is applied after shape layers and flow lines but before post-processing (noise, vignette, connecting curves). This means the mirrored content gets the same noise texture and vignette as the original, maintaining visual consistency. Symmetrical generative art is disproportionately appealing to humans due to our innate preference for bilateral symmetry.
 
-## 5. Focal Points & Negative Space
+## 6. Focal Points & Negative Space
 
 1-2 focal points are placed on the canvas. **70% of the time**, focal points snap to **rule-of-thirds intersection points** (with slight jitter to avoid a mechanical look), creating compositions that feel intentionally designed. The remaining 30% use free placement within the central 60% of the canvas. Every shape position is pulled toward the nearest focal point by a strength factor (30-70%).
 
@@ -156,7 +224,7 @@ Symmetry is applied after shape layers and flow lines but before post-processing
 
 Before placing each shape, the renderer checks how many shapes already exist nearby. If local density exceeds ~15% of the per-layer shape count, there's a 60% chance the shape is skipped. This prevents areas from becoming an opaque blob and creates natural visual rhythm.
 
-## 6. Shape Layers
+## 7. Shape Layers
 
 The image is built in N layers (default: 4). Each layer has its own characteristics:
 
@@ -169,7 +237,7 @@ The image is built in N layers (default: 4). Each layer has its own characterist
 | Shape weights | Early layers favor basic shapes; later layers favor complex/sacred |
 | Per-shape opacity | Additional random jitter (50-100% of layer opacity) |
 | Blend mode | Each layer gets a hash-derived `globalCompositeOperation` (see below) |
-| Render style | Each layer has a dominant render style; 30% of shapes pick their own |
+| Render style | Each layer has a dominant render style (60% from archetype preferences, 40% random); 30% of shapes pick their own |
 | Atmospheric depth | Later layers desaturate colors by up to 30%, simulating distance |
 
 ### Blend Modes (Per-Layer Compositing)
@@ -230,7 +298,7 @@ Each shape receives:
 - Sized at 15-40% of the parent
 - More transparent than the parent layer
 
-## 7. Flow-Line Pass (Tapered Brush Strokes)
+## 8. Flow-Line Pass (Tapered Brush Strokes)
 
 6-16 flowing curves are drawn across the canvas, following the hash-derived vector field:
 
@@ -246,7 +314,7 @@ The flow field is defined by:
 angle(x, y) = baseAngle + sin(x/w × freq × 2π) × π/2 + cos(y/h × freq × 2π) × π/2
 ```
 
-## 8. Noise Texture Overlay
+## 9. Noise Texture Overlay
 
 A dedicated noise RNG (seeded separately from the main RNG to avoid affecting shape generation) renders thousands of 1px dots across the canvas:
 
@@ -255,7 +323,7 @@ A dedicated noise RNG (seeded separately from the main RNG to avoid affecting sh
 - Very low opacity (1-4%)
 - Creates subtle film-grain texture that adds organic depth
 
-## 8b. Vignette
+## 9b. Vignette
 
 A radial gradient overlay darkens the edges of the canvas, drawing the viewer's eye toward the center:
 
@@ -264,7 +332,7 @@ A radial gradient overlay darkens the edges of the canvas, drawing the viewer's 
 - Applied after noise but before connecting curves, so the curves remain visible at edges
 - Creates a natural "spotlight" effect that makes compositions feel more focused and photographic
 
-## 9. Organic Connecting Curves
+## 10. Organic Connecting Curves
 
 Quadratic bezier curves connect nearby shapes:
 

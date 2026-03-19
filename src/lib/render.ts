@@ -28,10 +28,12 @@ import {
     enhanceShapeGeneration,
     pickBlendMode,
     pickRenderStyle,
+    type RenderStyle,
 } from "./canvas/draw";
 import { shapes } from "./canvas/shapes";
 import { createRng, seedFromHash } from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
+import { selectArchetype, type BackgroundStyle } from "./archetypes";
 
 // ── Shape categories for weighted selection ─────────────────────────
 
@@ -210,6 +212,85 @@ function localDensity(
   return count;
 }
 
+// ── Helper: draw background based on archetype style ────────────────
+
+function drawBackground(
+  ctx: CanvasRenderingContext2D,
+  style: BackgroundStyle,
+  bgStart: string,
+  bgEnd: string,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  bgRadius: number,
+  rng: () => number,
+  colors: string[],
+): void {
+  switch (style) {
+    case "radial-light": {
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgRadius);
+      grad.addColorStop(0, "#f0ece4");
+      grad.addColorStop(1, bgStart);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "linear-horizontal": {
+      const grad = ctx.createLinearGradient(0, 0, width, 0);
+      grad.addColorStop(0, bgStart);
+      grad.addColorStop(1, bgEnd);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "linear-diagonal": {
+      const grad = ctx.createLinearGradient(0, 0, width, height);
+      grad.addColorStop(0, bgStart);
+      grad.addColorStop(0.5, bgEnd);
+      grad.addColorStop(1, bgStart);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "solid-dark": {
+      ctx.fillStyle = bgStart;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "solid-light": {
+      ctx.fillStyle = "#f5f2eb";
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "multi-stop": {
+      const grad = ctx.createLinearGradient(0, 0, width * 0.7, height);
+      grad.addColorStop(0, bgStart);
+      grad.addColorStop(0.33, bgEnd);
+      if (colors.length > 0) {
+        const midColor = hexWithAlpha(colors[0], 1).replace(/rgba\((\d+),(\d+),(\d+),[^)]+\)/, (_, r, g, b) => {
+          const darken = (v: string) => Math.round(parseInt(v) * 0.4).toString(16).padStart(2, "0");
+          return `#${darken(r)}${darken(g)}${darken(b)}`;
+        });
+        grad.addColorStop(0.66, midColor);
+      }
+      grad.addColorStop(1, bgStart);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+    case "radial-dark":
+    default: {
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgRadius);
+      grad.addColorStop(0, bgStart);
+      grad.addColorStop(1, bgEnd);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, width, height);
+      break;
+    }
+  }
+}
+
 // ── Main render function ────────────────────────────────────────────
 
 export function renderHashArt(
@@ -218,25 +299,31 @@ export function renderHashArt(
   config: Partial<GenerationConfig> = {},
 ): void {
   const finalConfig: GenerationConfig = { ...DEFAULT_CONFIG, ...config };
+
+  const rng = createRng(seedFromHash(gitHash));
+
+  // ── 0. Select archetype — fundamentally different visual personality ──
+  const archetype = selectArchetype(rng);
+
+  // Archetype overrides defaults, but explicit user config wins
   const {
     width,
     height,
-    gridSize,
-    layers,
-    minShapeSize,
-    maxShapeSize,
-    baseOpacity,
-    opacityReduction,
   } = finalConfig;
+  const gridSize = config.gridSize ?? archetype.gridSize;
+  const layers = config.layers ?? archetype.layers;
+  const minShapeSize = config.minShapeSize ?? archetype.minShapeSize;
+  const maxShapeSize = config.maxShapeSize ?? archetype.maxShapeSize;
+  const baseOpacity = config.baseOpacity ?? archetype.baseOpacity;
+  const opacityReduction = config.opacityReduction ?? archetype.opacityReduction;
 
-  finalConfig.shapesPerLayer =
+  const shapesPerLayer =
     finalConfig.shapesPerLayer || Math.floor(gridSize * gridSize * 1.5);
 
   const colorScheme = new SacredColorScheme(gitHash);
-  const colors = colorScheme.getColors();
-  const [bgStart, bgEnd] = colorScheme.getBackgroundColors();
+  const colors = colorScheme.getColorsByMode(archetype.paletteMode);
+  const [bgStart, bgEnd] = colorScheme.getBackgroundColorsByMode(archetype.paletteMode);
   const tempMode = colorScheme.getTemperatureMode();
-  // Foreground shapes get the opposite temperature for contrast
   const fgTempTarget: "warm" | "cool" | null =
     tempMode === "warm-bg" ? "cool" : tempMode === "cool-bg" ? "warm" : null;
 
@@ -245,17 +332,12 @@ export function renderHashArt(
   const adjustedMinSize = minShapeSize * scaleFactor;
   const adjustedMaxSize = maxShapeSize * scaleFactor;
 
-  const rng = createRng(seedFromHash(gitHash));
   const cx = width / 2;
   const cy = height / 2;
 
   // ── 1. Background ──────────────────────────────────────────────
   const bgRadius = Math.hypot(cx, cy);
-  const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgRadius);
-  bgGrad.addColorStop(0, bgStart);
-  bgGrad.addColorStop(1, bgEnd);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, width, height);
+  drawBackground(ctx, archetype.backgroundStyle, bgStart, bgEnd, width, height, cx, cy, bgRadius, rng, colors);
 
   // ── 1b. Layered background (Feature G) ─────────────────────────
   // Draw large, very faint shapes to give the background texture
@@ -367,9 +449,7 @@ export function renderHashArt(
   const shapePositions: Array<{ x: number; y: number; size: number }> = [];
 
   // ── 4b. Hero shape — a dominant focal element ───────────────────
-  // ~60% of images get a hero shape anchored at the primary focal point.
-  // It's a large sacred/complex shape that gives the composition a center of gravity.
-  if (rng() < 0.6) {
+  if (archetype.heroShape && rng() < 0.6) {
     const heroFocal = focalPoints[0];
     const heroPool = [...SACRED_SHAPES, "fibonacciSpiral", "merkaba", "fractal"];
     const heroShape =
@@ -405,13 +485,13 @@ export function renderHashArt(
 
   // ── 5. Shape layers ────────────────────────────────────────────
   const densityCheckRadius = Math.min(width, height) * 0.08;
-  const maxLocalDensity = Math.ceil(finalConfig.shapesPerLayer * 0.15);
+  const maxLocalDensity = Math.ceil(shapesPerLayer * 0.15);
 
   for (let layer = 0; layer < layers; layer++) {
     const layerRatio = layers > 1 ? layer / (layers - 1) : 0;
     const numShapes =
-      finalConfig.shapesPerLayer +
-      Math.floor(rng() * finalConfig.shapesPerLayer * 0.3);
+      shapesPerLayer +
+      Math.floor(rng() * shapesPerLayer * 0.3);
     const layerOpacity = Math.max(0.15, baseOpacity - layer * opacityReduction);
     const layerSizeScale = 1 - layer * 0.15;
 
@@ -419,8 +499,10 @@ export function renderHashArt(
     const layerBlend = pickBlendMode(rng);
     ctx.globalCompositeOperation = layerBlend;
 
-    // Feature C: per-layer render style bias
-    const layerRenderStyle = pickRenderStyle(rng);
+    // Feature C: per-layer render style bias — prefer archetype styles
+    const layerRenderStyle: RenderStyle = rng() < 0.6
+      ? archetype.preferredStyles[Math.floor(rng() * archetype.preferredStyles.length)]
+      : pickRenderStyle(rng);
 
     // Feature D: atmospheric desaturation for later layers
     const atmosphericDesat = layerRatio * 0.3; // 0 for first layer, up to 0.3 for last
@@ -451,8 +533,8 @@ export function renderHashArt(
       // Weighted shape selection
       const shape = pickShape(rng, layerRatio, shapeNames);
 
-      // Power distribution for size
-      const sizeT = Math.pow(rng(), 1.8);
+      // Power distribution for size — archetype controls the curve
+      const sizeT = Math.pow(rng(), archetype.sizePower);
       const size =
         (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
         layerSizeScale;
@@ -488,9 +570,10 @@ export function renderHashArt(
 
       ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5);
 
-      // Glow on sacred shapes more often
+      // Glow on sacred shapes more often — scaled by archetype
       const isSacred = SACRED_SHAPES.includes(shape);
-      const glowChance = isSacred ? 0.45 : 0.2;
+      const baseGlowChance = isSacred ? 0.45 : 0.2;
+      const glowChance = baseGlowChance * archetype.glowMultiplier;
       const hasGlow = rng() < glowChance;
       const glowRadius = hasGlow ? (8 + rng() * 20) * scaleFactor : 0;
 
@@ -568,7 +651,8 @@ export function renderHashArt(
   ctx.globalCompositeOperation = "source-over";
 
   // ── 6. Flow-line pass (Feature H: tapered brush strokes) ───────
-  const numFlowLines = 6 + Math.floor(rng() * 10);
+  const baseFlowLines = 6 + Math.floor(rng() * 10);
+  const numFlowLines = Math.round(baseFlowLines * archetype.flowLineMultiplier);
   for (let i = 0; i < numFlowLines; i++) {
     let fx = rng() * width;
     let fy = rng() * height;
