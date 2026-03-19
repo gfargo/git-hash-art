@@ -3,15 +3,24 @@ name: Deploy git-hash-art-www
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to deploy (e.g. 0.10.0)'
+        required: true
 
 jobs:
   bump-www:
     runs-on: ubuntu-latest
     steps:
-      - name: Extract version from release tag
+      - name: Extract version
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Clone git-hash-art-www
