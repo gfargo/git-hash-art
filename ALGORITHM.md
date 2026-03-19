@@ -9,7 +9,7 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Archetype Selection (1 of 13 visual personalities)
+  ├─► Archetype Selection (1 of 17 visual personalities)
   │
   ├─► Color Scheme (palette mode + temperature mode + contrast enforcement)
   │   └─► Color Hierarchy (dominant 60% / secondary 25% / accent 15%)
@@ -29,6 +29,7 @@ Hash String
            └─ Gradient Mesh Overlay (3-4 radial color control points)
        1a. Background Luminance → contrast enforcement threshold
        1b. Layered Background (archetype-coherent shapes + concentric rings)
+       1c. Background Pattern Layer (dot grid / diagonal lines / tessellation)
        2.  Composition Mode Selection
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones
@@ -37,6 +38,7 @@ Hash String
        5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
        │   ├─ Render Style (affinity-aware per shape)
+       │   ├─ Depth-of-Field (stroke thinning + contrast reduction on far layers)
        │   ├─ Position (composition mode + focal bias + density check)
        │   ├─ Shape Selection (palette-driven with size constraints)
        │   ├─ Hero Avoidance Field (nearby shapes orient toward hero)
@@ -45,8 +47,11 @@ Hash String
        │   ├─ Temperature Contrast (foreground opposite to background)
        │   ├─ Styling (transparency, glow, gradients, HSL jitter)
        │   ├─ Organic Edges (~15% watercolor bleed)
-       │   ├─ Size Echo (~20% of large shapes spawn trailing copies)
-       │   └─ Recursive Nesting (~15% of large shapes, palette-aware)
+       │   ├─ 5a. Tangent Placement (~25% nudge toward nearest shape edge)
+       │   ├─ 5b. Shape Mirroring (~40% of basic shapes get reflected copies)
+       │   ├─ 5c. Size Echo (~20% of large shapes spawn trailing copies)
+       │   ├─ 5d. Recursive Nesting (~15% of large shapes, palette-aware)
+       │   └─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
        6.  Flow-Line Pass (variable color, pressure, branching)
        6b. Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        7.  Noise Texture Overlay
@@ -71,7 +76,7 @@ The old approach extracted 2-char hex pairs from the hash (only ~20 unique value
 
 ## 2. Archetype System
 
-Before any rendering begins, the hash deterministically selects one of 13 **visual archetypes** — fundamentally different rendering personalities that override key parameters. This is the primary mechanism for visual diversity: two hashes that select different archetypes will look like they came from entirely different generators.
+Before any rendering begins, the hash deterministically selects one of 17 **visual archetypes** — fundamentally different rendering personalities that override key parameters. This is the primary mechanism for visual diversity: two hashes that select different archetypes will look like they came from entirely different generators.
 
 Each archetype controls:
 
@@ -87,9 +92,9 @@ Each archetype controls:
 | `flowLineMultiplier` | Flow line density (0 = none, 4 = heavy) |
 | `heroShape` | Whether to draw a dominant focal shape |
 | `glowMultiplier` | Glow probability scaling (0 = none, 3 = heavy) |
-| `sizePower` | Size distribution curve (0.5 = uniform, 2.5 = many tiny) |
+| `sizePower` | Size distribution curve (0.5 = uniform, 2.8 = many tiny) |
 
-### The 13 Archetypes
+### The 17 Archetypes
 
 | Archetype | Grid | Layers | Background | Palette | Key Styles | Flow | Hero | Character |
 | --------- | ---- | ------ | ---------- | ------- | ---------- | ---- | ---- | --------- |
@@ -106,6 +111,20 @@ Each archetype controls:
 | op-art | 8 | 2 | solid-light | high-contrast | fill-and-stroke, stroke-only, dashed | 0× | no | Dense, high-contrast, uniform sizes |
 | collage | 4 | 3 | solid-light | duotone | fill-and-stroke, fill-only, double-stroke | 0× | yes | Overlapping, medium-large shapes |
 | classic | 5 | 4 | radial-dark | harmonious | fill-and-stroke, watercolor | 1× | yes | Balanced, the original look |
+| shattered-glass | 8 | 3 | solid-dark | high-contrast | fill-and-stroke, stroke-only, fill-only | 0× | no | Angular fragments, sharp edges, mosaic-like |
+| botanical | 4 | 4 | radial-light | earth | watercolor, fill-only, incomplete | 3× | yes | Organic tendrils, flowing forms, natural tones |
+| stipple-portrait | 9 | 2 | solid-light | monochrome | stipple, fill-only, hatched | 0× | no | Dense dot textures, pointillist, single hue |
+| celestial | 7 | 5 | radial-dark | neon | fill-only, watercolor, stroke-only, incomplete | 2× | yes | Cosmic crescents, sacred geometry, heavy glow |
+
+#### New Archetype Details
+
+**shattered-glass** — Favors angular, fragmented shapes (shardField, voronoiCell, penroseTile, diamond, triangle, ngon). Organic shapes like blobs and clouds are filtered from the palette. High contrast on a dark background with no flow lines creates a mosaic of sharp-edged fragments.
+
+**botanical** — Boosts organic shapes (tendril, cloudForm, blob, crescent, rose, inkSplat) for a natural, garden-like feel. Earth palette on a light radial background with heavy flow lines (3×) creates flowing, vine-like compositions.
+
+**stipple-portrait** — Extremely dense (grid 9) with very small shapes (5–120px) and a steep size power curve (2.8) producing many tiny dots. Monochrome palette with stipple and hatched styles creates a pointillist texture. No flow lines or hero shape.
+
+**celestial** — Boosts sacred geometry and cosmic shapes (crescent, geodesicDome, mandala, flowerOfLife, spirograph, fibonacciSpiral). Neon palette on dark background with heavy glow (2.5×) and deep layering (5 layers) creates a starfield-like composition with luminous geometric forms.
 
 ## 3. Color Scheme
 
@@ -158,9 +177,20 @@ Every shape color is checked against the background luminance. If the contrast r
 
 Not all shapes look equally good at all sizes or in all combinations. The affinity system replaces naive random shape selection with intentional curation.
 
+### Shape Inventory
+
+The system includes 40+ shapes across 4 categories:
+
+| Category | Shapes |
+| -------- | ------ |
+| Basic (9) | circle, square, triangle, hexagon, star, jacked-star, heart, diamond, cube |
+| Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, fractal |
+| Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, torus, eggOfLife |
+| Procedural (18) | blob, ngon, lissajous, superellipse, spirograph, waveRing, rose, shardField, voronoiCell, crescent, tendril, cloudForm, inkSplat, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, crosshatchPatch |
+
 ### Quality Tiers
 
-Each of the 30+ shapes has a profile with:
+Each shape has a profile with:
 
 | Field | Purpose |
 | ----- | ------- |
@@ -180,7 +210,13 @@ Each of the 30+ shapes has a profile with:
 3. **Supporting (6 shapes):** Affinities-of-affinities + same-category Tier 1–2 shapes
 4. **Accents (3 shapes):** Tier 1–2 shapes from *other* categories for contrast
 
-Archetype-specific overrides apply: `geometric-precision` removes organic/procedural shapes from primary; `organic-flow` boosts blobs and wave rings.
+Archetype-specific overrides apply:
+- `geometric-precision` removes organic/procedural shapes from primary
+- `organic-flow` boosts blobs and wave rings
+- `shattered-glass` boosts angular shapes (shardField, voronoiCell, penroseTile), removes blobs/clouds
+- `botanical` boosts organic shapes (tendril, cloudForm, crescent, rose, inkSplat)
+- `stipple-portrait` boosts dot-friendly shapes (dotCluster, circle, crosshatchPatch)
+- `celestial` boosts sacred/cosmic shapes (crescent, geodesicDome, mandala, flowerOfLife)
 
 ### Palette-Driven Selection
 
@@ -215,6 +251,18 @@ After the base background, 3–4 radial color control points are placed at rando
 ### Layered Background Shapes
 
 Large, nearly-transparent shapes (3–7) are drawn in `soft-light` mode at 3–8% opacity. The shape type is archetype-coherent: geometric archetypes (`geometric-precision`, `op-art`) use rectangles; all others use circles. Subtle concentric rings radiate from the center at ~2–5% opacity to add structure.
+
+### Background Pattern Layer
+
+~60% of images receive a subtle background pattern drawn in `soft-light` at 2–6% opacity, simulating textured paper:
+
+| Pattern | Description |
+| ------- | ----------- |
+| Dot grid (⅓ chance) | Evenly spaced tiny dots across the canvas |
+| Diagonal lines (⅓ chance) | Parallel diagonal lines at 0.5px width |
+| Hexagonal tessellation (⅓ chance) | Honeycomb grid of tiny hexagons, stroke-only |
+
+The pattern spacing scales with canvas size (1.5–3% of the shorter dimension). This adds tactile depth without competing with foreground shapes.
 
 ### Background Luminance
 
@@ -271,6 +319,7 @@ The core of the image: `layers` passes (archetype-controlled, typically 2–5), 
 - **Opacity:** Decreases per layer (`baseOpacity - layer × opacityReduction`, floor 0.15)
 - **Size scale:** Decreases 15% per layer (later layers = smaller shapes)
 - **Atmospheric desaturation:** Later layers are progressively desaturated (up to 30%) to simulate depth
+- **Depth-of-field:** Later layers get thinner strokes (down to 40% of base width) and reduced contrast (up to 20% opacity reduction), simulating camera focus falloff
 
 ### Per-Shape Pipeline
 
@@ -289,17 +338,48 @@ For each shape in a layer:
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
 12. **Light direction:** Non-glowing shapes get a subtle shadow offset along the consistent light angle
 
-### Size Echo
+### 5a. Tangent Placement
+
+~25% of shapes are nudged toward the nearest previously-placed shape so their edges "kiss." The algorithm finds the nearest shape, computes the target distance (sum of half-sizes), and repositions the current shape along the angle between them. This creates organic clustering where shapes feel intentionally arranged rather than randomly scattered.
+
+### 5b. Shape Mirroring
+
+Basic shapes (circle, triangle, square, hexagon, star, diamond, crescent, penroseTile, reuleauxTriangle) that are larger than 20% of max size have a ~40% chance of receiving a mirrored reflection. Four mirror axes are available:
+
+| Axis | Probability | Effect |
+| ---- | ----------- | ------ |
+| horizontal | 15% | Reflected below with inverted rotation |
+| vertical | 12% | Reflected to the right with 180° rotation offset |
+| diagonal | 8% | Reflected along 45° axis with 90° rotation offset |
+| radial-4 | 5% | Four copies at 90° intervals around the center |
+
+The mirror copy is drawn at 70% opacity and 95% size (decreasing for radial-4), creating a subtle symmetry effect without perfect duplication.
+
+### 5c. Size Echo
 
 ~20% of shapes larger than half `adjustedMaxSize` spawn 2–3 trailing copies along a random direction. Each echo is progressively smaller (30% → 22% → 14% of parent size) and more transparent, creating a motion-trail effect.
 
-### Recursive Nesting
+### 5d. Recursive Nesting
 
 ~15% of shapes larger than 40% of `adjustedMaxSize` receive 1–3 inner shapes. Inner shapes are selected from the palette via `pickShapeFromPalette` at the nested size fraction, and styled with their own affinity-aware render style.
 
+### 5e. Shape Constellations
+
+~12% of shapes larger than 35% of `adjustedMaxSize` trigger a **constellation** — a pre-composed group of shapes placed as a unit. The entire group is rotated by a random angle for variety. Five constellation types are available:
+
+| Constellation | Description |
+| ------------- | ----------- |
+| flanked-triangle | Central triangle with two smaller circles on either side |
+| hexagon-ring | 5–6 hexagons arranged in a ring |
+| spiral-dots | 7–11 circles spiraling outward with decreasing size |
+| diamond-cluster | 4 diamonds in a cardinal arrangement with progressive rotation |
+| crescent-pair | Two crescents facing each other |
+
+Each member shape uses hierarchy colors with HSL jitter and affinity-aware render styles. Members that fall outside the canvas bounds are skipped.
+
 ## 10. Render Styles
 
-Each shape is drawn using one of 8 render styles:
+Each shape is drawn using one of 14 render styles:
 
 | Style | Description |
 | ----- | ----------- |
@@ -311,6 +391,28 @@ Each shape is drawn using one of 8 render styles:
 | watercolor | Multi-pass: base wash (scaled up 8%), radial-bleed offset washes, edge darkening via inner lighter fill, delicate thin stroke |
 | hatched | 30% opacity fill + clipped cross-hatch lines (parallel + optional perpendicular) + 50% opacity outline |
 | incomplete | 25% opacity fill + long-dash stroke simulating a partially drawn outline (60–85% completeness) |
+| stipple | Ghost fill at 15% + clipped dot grid with jittered positions and variable dot sizes |
+| stencil | Negative-space cutout: fills a bounding rectangle, then erases the shape via destination-out compositing |
+| noise-grain | 25% base tint + clipped procedural noise (random black/white dots at 15–50% opacity, variable sizes) |
+| wood-grain | 20% base tint + clipped parallel wavy lines at a random angle, simulating wood texture |
+| marble-vein | 35% soft base + clipped branching vein lines that drift and fork, simulating marble stone |
+| fabric-weave | 15% ghost base + clipped interlocking horizontal and vertical thread lines at alternating opacities |
+
+### Texture Fill Details
+
+The 4 new texture fills (noise-grain, wood-grain, marble-vein, fabric-weave) all work by:
+1. Drawing a low-opacity base fill to tint the shape
+2. Clipping to the shape boundary via `ctx.clip()`
+3. Drawing the procedural texture pattern within the clipped region
+4. Adding a subtle outline stroke on top
+
+**noise-grain** scatters random-sized dots (black or white) across the shape at variable opacity, creating a film-grain or sandpaper texture. Dot spacing scales with shape size.
+
+**wood-grain** draws parallel wavy lines at a random angle. The wave frequency (3–8 cycles) and amplitude (1–4% of size) create organic undulation. Line spacing is ~3.5% of shape size.
+
+**marble-vein** draws 2–4 main veins that drift randomly downward, with ~20% chance per step of spawning a thinner branch vein. This creates the characteristic forking pattern of natural marble.
+
+**fabric-weave** draws horizontal threads at full spacing, then vertical threads at half-spacing offsets, creating an over-under weave pattern. The two thread directions use different opacities (55% vs 45%) and colors (stroke vs fill) for visual distinction.
 
 ### Watercolor Detail
 
