@@ -358,10 +358,54 @@ const ARCHETYPES: Archetype[] = [
 ];
 
 /**
+ * Linearly interpolate between two archetype numeric parameters.
+ */
+function lerpNum(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/**
+ * Blend two archetypes by interpolating their numeric parameters
+ * and merging their style arrays.
+ */
+function blendArchetypes(a: Archetype, b: Archetype, t: number): Archetype {
+  // Merge preferred styles — unique union, primary archetype first
+  const mergedStyles = [...new Set([...a.preferredStyles, ...b.preferredStyles])] as RenderStyle[];
+
+  return {
+    name: `${a.name}+${b.name}`,
+    gridSize: Math.round(lerpNum(a.gridSize, b.gridSize, t)),
+    layers: Math.round(lerpNum(a.layers, b.layers, t)),
+    baseOpacity: lerpNum(a.baseOpacity, b.baseOpacity, t),
+    opacityReduction: lerpNum(a.opacityReduction, b.opacityReduction, t),
+    minShapeSize: Math.round(lerpNum(a.minShapeSize, b.minShapeSize, t)),
+    maxShapeSize: Math.round(lerpNum(a.maxShapeSize, b.maxShapeSize, t)),
+    backgroundStyle: t < 0.5 ? a.backgroundStyle : b.backgroundStyle,
+    paletteMode: t < 0.5 ? a.paletteMode : b.paletteMode,
+    preferredStyles: mergedStyles,
+    flowLineMultiplier: lerpNum(a.flowLineMultiplier, b.flowLineMultiplier, t),
+    heroShape: t < 0.5 ? a.heroShape : b.heroShape,
+    glowMultiplier: lerpNum(a.glowMultiplier, b.glowMultiplier, t),
+    sizePower: lerpNum(a.sizePower, b.sizePower, t),
+    invertForeground: t < 0.5 ? a.invertForeground : b.invertForeground,
+  };
+}
+
+/**
  * Select an archetype deterministically from the hash.
- * The "classic" archetype preserves the original look for backward compat
- * but only gets ~10% of hashes.
+ * ~15% of hashes produce a blended archetype (interpolation of two).
  */
 export function selectArchetype(rng: () => number): Archetype {
-  return ARCHETYPES[Math.floor(rng() * ARCHETYPES.length)];
+  const primary = ARCHETYPES[Math.floor(rng() * ARCHETYPES.length)];
+
+  // ~15% chance of blending with a second archetype
+  if (rng() < 0.15) {
+    const secondary = ARCHETYPES[Math.floor(rng() * ARCHETYPES.length)];
+    if (secondary.name !== primary.name) {
+      const blendT = 0.25 + rng() * 0.25; // 25-50% blend toward secondary
+      return blendArchetypes(primary, secondary, blendT);
+    }
+  }
+
+  return primary;
 }

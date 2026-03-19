@@ -510,3 +510,28 @@ export function pickColorGrade(rng: () => number): { hue: number; intensity: num
   const intensity = 0.15 + rng() * 0.25;
   return { hue: (hue + 360) % 360, intensity };
 }
+
+/**
+ * Rotate the hue of a hex color by a given number of degrees.
+ */
+export function hueRotate(hex: string, degrees: number): string {
+  const [h, s, l] = hexToHsl(hex);
+  return hslToHex((h + degrees + 360) % 360, s, l);
+}
+
+/**
+ * Evolve a color hierarchy for a given layer — shifts hue progressively.
+ * Creates atmospheric color perspective (like distant mountains shifting blue).
+ */
+export function evolveHierarchy(
+  base: ColorHierarchy,
+  layerRatio: number,
+  hueShiftPerLayer: number,
+): ColorHierarchy {
+  const shift = layerRatio * hueShiftPerLayer;
+  return {
+    dominant: hueRotate(base.dominant, shift),
+    secondary: hueRotate(base.secondary, shift * 0.7),
+    accent: hueRotate(base.accent, shift * 0.5),
+  };
+}

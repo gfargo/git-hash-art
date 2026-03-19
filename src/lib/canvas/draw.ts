@@ -41,7 +41,8 @@ export type RenderStyle =
   | "noise-grain"      // procedural noise grain texture clipped to shape
   | "wood-grain"       // parallel wavy lines simulating wood
   | "marble-vein"      // branching vein lines on a soft fill
-  | "fabric-weave";    // interlocking horizontal/vertical threads
+  | "fabric-weave"     // interlocking horizontal/vertical threads
+  | "hand-drawn";      // wobbly hand-drawn edge treatment
 
 const RENDER_STYLES: RenderStyle[] = [
   "fill-and-stroke",
@@ -59,6 +60,7 @@ const RENDER_STYLES: RenderStyle[] = [
   "wood-grain",
   "marble-vein",
   "fabric-weave",
+  "hand-drawn",
 ];
 
 export function pickRenderStyle(rng: () => number): RenderStyle {
@@ -503,6 +505,34 @@ function applyRenderStyle(
       ctx.globalAlpha *= 0.3;
       ctx.stroke();
       ctx.globalAlpha /= 0.3;
+      break;
+    }
+
+    case "hand-drawn": {
+      // Wobbly hand-drawn edge treatment — fill normally, then redraw
+      // the outline with perturbed control points for a sketchy feel
+      const savedAlphaHD = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaHD * 0.85;
+      ctx.fill();
+      ctx.globalAlpha = savedAlphaHD;
+
+      // Draw 2-3 slightly offset wobbly strokes for a sketchy look
+      const wobblePasses = 2 + (rng ? Math.floor(rng() * 2) : 0);
+      ctx.lineWidth = strokeWidth * 0.8;
+      for (let wp = 0; wp < wobblePasses; wp++) {
+        ctx.globalAlpha = savedAlphaHD * (0.4 - wp * 0.1);
+        ctx.save();
+        // Slight random offset per pass
+        const wobbleX = rng ? (rng() - 0.5) * size * 0.02 : 0;
+        const wobbleY = rng ? (rng() - 0.5) * size * 0.02 : 0;
+        ctx.translate(wobbleX, wobbleY);
+        // Slightly different scale per pass for edge variation
+        const wobbleScale = 1 + (rng ? (rng() - 0.5) * 0.03 : 0);
+        ctx.scale(wobbleScale, wobbleScale);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.globalAlpha = savedAlphaHD;
       break;
     }
 
