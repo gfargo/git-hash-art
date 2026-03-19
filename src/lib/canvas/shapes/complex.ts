@@ -54,10 +54,12 @@ export const drawPlatonicSolid: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
+  const solidType = config.type as keyof typeof ShapeConfigs.platonic;
+  const solidConfig = ShapeConfigs.platonic[solidType] ?? ShapeConfigs.platonic.icosahedron;
   const {
     vertices,
     // faces
-  } = ShapeConfigs.platonic[config.type as keyof typeof ShapeConfigs.platonic];
+  } = solidConfig;
   const radius = size / 2;
 
   // Calculate vertices based on platonic solid type

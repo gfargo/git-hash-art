@@ -1,4 +1,4 @@
-import { createCanvas } from "canvas";
+import { createCanvas } from "@napi-rs/canvas";
 import fs from "fs";
 import path from "path";
 import { SacredColorScheme } from "./lib/canvas/colors";
