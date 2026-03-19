@@ -94,12 +94,7 @@ function generateDataURL(
   return canvas.toDataURL("image/png");
 }
 
-export {
-  renderToCanvas,
-  generateImageBlob,
-  generateDataURL,
-  renderHashArt,
-};
+export { renderToCanvas, generateImageBlob, generateDataURL, renderHashArt };
 export { PRESETS } from "./lib/constants";
 export type { GenerationConfig } from "./types";
 export { DEFAULT_CONFIG } from "./types";
