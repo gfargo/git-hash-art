@@ -288,7 +288,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     affinities: ["circle", "square", "blob", "hexagon"],
     category: "procedural",
     heroCandidate: false,
-    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke", "wood-grain"],
   },
   spirograph: {
     tier: 1,
@@ -316,6 +316,107 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["stroke-only", "fill-only", "watercolor"],
+  },
+
+  // ── New procedural shapes ─────────────────────────────────────
+  shardField: {
+    tier: 2,
+    minSizeFraction: 0.1,
+    maxSizeFraction: 0.7,
+    affinities: ["voronoiCell", "diamond", "triangle", "penroseTile"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-and-stroke", "stroke-only", "fill-only"],
+  },
+  voronoiCell: {
+    tier: 1,
+    minSizeFraction: 0.08,
+    maxSizeFraction: 0.9,
+    affinities: ["shardField", "ngon", "superellipse", "blob"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-and-stroke", "fill-only", "watercolor", "marble-vein"],
+  },
+  crescent: {
+    tier: 1,
+    minSizeFraction: 0.1,
+    maxSizeFraction: 1.0,
+    affinities: ["circle", "blob", "cloudForm", "vesicaPiscis"],
+    category: "procedural",
+    heroCandidate: true,
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+  },
+  tendril: {
+    tier: 2,
+    minSizeFraction: 0.1,
+    maxSizeFraction: 0.8,
+    affinities: ["blob", "inkSplat", "lissajous", "fibonacciSpiral"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+  },
+  cloudForm: {
+    tier: 1,
+    minSizeFraction: 0.15,
+    maxSizeFraction: 1.0,
+    affinities: ["blob", "circle", "crescent", "superellipse"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-only", "watercolor"],
+  },
+  inkSplat: {
+    tier: 2,
+    minSizeFraction: 0.1,
+    maxSizeFraction: 0.8,
+    affinities: ["blob", "tendril", "shardField", "star"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+  },
+  geodesicDome: {
+    tier: 2,
+    minSizeFraction: 0.2,
+    maxSizeFraction: 0.9,
+    affinities: ["metatronsCube", "platonicSolid", "hexagon", "triangle"],
+    category: "procedural",
+    heroCandidate: true,
+    bestStyles: ["stroke-only", "dashed", "double-stroke"],
+  },
+  penroseTile: {
+    tier: 2,
+    minSizeFraction: 0.06,
+    maxSizeFraction: 0.6,
+    affinities: ["diamond", "triangle", "shardField", "voronoiCell"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-and-stroke", "fill-only", "double-stroke"],
+  },
+  reuleauxTriangle: {
+    tier: 1,
+    minSizeFraction: 0.08,
+    maxSizeFraction: 1.0,
+    affinities: ["triangle", "circle", "superellipse", "vesicaPiscis"],
+    category: "procedural",
+    heroCandidate: true,
+    bestStyles: ["fill-and-stroke", "fill-only", "watercolor"],
+  },
+  dotCluster: {
+    tier: 3,
+    minSizeFraction: 0.05,
+    maxSizeFraction: 0.5,
+    affinities: ["cloudForm", "inkSplat", "blob"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["fill-only", "stipple"],
+  },
+  crosshatchPatch: {
+    tier: 3,
+    minSizeFraction: 0.1,
+    maxSizeFraction: 0.6,
+    affinities: ["voronoiCell", "ngon", "superellipse"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["stroke-only", "hatched", "fabric-weave"],
   },
 };
 
@@ -414,6 +515,50 @@ export function buildShapePalette(
     );
     return {
       primary: [...primary, ...organicBoost.slice(0, 2)],
+      supporting,
+      accents,
+    };
+  }
+  if (archetypeName === "shattered-glass") {
+    // Favor angular, fragmented shapes
+    const shardBoost = available.filter(
+      (s) => ["shardField", "voronoiCell", "penroseTile", "diamond", "triangle", "ngon"].includes(s) && !primary.includes(s),
+    );
+    return {
+      primary: [...primary.filter((s) => s !== "blob" && s !== "cloudForm"), ...shardBoost.slice(0, 3)],
+      supporting: supporting.filter((s) => s !== "blob" && s !== "cloudForm"),
+      accents,
+    };
+  }
+  if (archetypeName === "botanical") {
+    // Favor organic, flowing shapes
+    const botanicalBoost = available.filter(
+      (s) => ["tendril", "cloudForm", "blob", "crescent", "rose", "inkSplat"].includes(s) && !primary.includes(s),
+    );
+    return {
+      primary: [...primary, ...botanicalBoost.slice(0, 3)],
+      supporting,
+      accents,
+    };
+  }
+  if (archetypeName === "stipple-portrait") {
+    // Favor small, dot-friendly shapes
+    const stippleBoost = available.filter(
+      (s) => ["dotCluster", "circle", "crosshatchPatch", "voronoiCell", "blob"].includes(s) && !primary.includes(s),
+    );
+    return {
+      primary: [...primary, ...stippleBoost.slice(0, 3)],
+      supporting,
+      accents,
+    };
+  }
+  if (archetypeName === "celestial") {
+    // Favor sacred geometry and cosmic shapes
+    const celestialBoost = available.filter(
+      (s) => ["crescent", "geodesicDome", "mandala", "flowerOfLife", "spirograph", "fibonacciSpiral"].includes(s) && !primary.includes(s),
+    );
+    return {
+      primary: [...primary, ...celestialBoost.slice(0, 3)],
       supporting,
       accents,
     };

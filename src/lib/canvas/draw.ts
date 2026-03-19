@@ -35,7 +35,13 @@ export type RenderStyle =
   | "dashed"           // dashed outline
   | "watercolor"       // multiple offset passes at low opacity
   | "hatched"          // cross-hatch texture fill
-  | "incomplete";      // draw only 60-85% of the stroke path
+  | "incomplete"       // draw only 60-85% of the stroke path
+  | "stipple"          // dot-fill texture
+  | "stencil"          // negative-space cutout effect
+  | "noise-grain"      // procedural noise grain texture clipped to shape
+  | "wood-grain"       // parallel wavy lines simulating wood
+  | "marble-vein"      // branching vein lines on a soft fill
+  | "fabric-weave";    // interlocking horizontal/vertical threads
 
 const RENDER_STYLES: RenderStyle[] = [
   "fill-and-stroke",
@@ -47,6 +53,12 @@ const RENDER_STYLES: RenderStyle[] = [
   "watercolor",
   "hatched",
   "incomplete",
+  "stipple",
+  "stencil",
+  "noise-grain",
+  "wood-grain",
+  "marble-vein",
+  "fabric-weave",
 ];
 
 export function pickRenderStyle(rng: () => number): RenderStyle {
@@ -274,6 +286,226 @@ function applyRenderStyle(
       break;
     }
 
+    case "stipple": {
+      // Dot-fill texture — clip to shape, then scatter dots
+      const savedAlphaS = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaS * 0.15;
+      ctx.fill(); // ghost fill
+      ctx.globalAlpha = savedAlphaS;
+
+      ctx.save();
+      ctx.clip();
+      const dotSpacing = Math.max(2, size * 0.03);
+      const extent = size * 0.55;
+      ctx.globalAlpha = savedAlphaS * 0.7;
+      for (let dx = -extent; dx <= extent; dx += dotSpacing) {
+        for (let dy = -extent; dy <= extent; dy += dotSpacing) {
+          // Jitter each dot position for organic feel
+          const jx = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
+          const jy = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
+          const dotR = rng ? dotSpacing * (0.15 + rng() * 0.2) : dotSpacing * 0.2;
+          ctx.beginPath();
+          ctx.arc(dx + jx, dy + jy, dotR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+      ctx.globalAlpha = savedAlphaS;
+      // Outline
+      ctx.globalAlpha *= 0.4;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.4;
+      break;
+    }
+
+    case "stencil": {
+      // Negative-space cutout — fill a rectangle, then erase the shape
+      const savedAlphaSt = ctx.globalAlpha;
+      // Fill a bounding area with the stroke color
+      ctx.globalAlpha = savedAlphaSt * 0.5;
+      ctx.fillStyle = strokeColor;
+      ctx.fillRect(-size * 0.6, -size * 0.6, size * 1.2, size * 1.2);
+      // Cut out the shape using destination-out
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.globalAlpha = 1;
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = savedAlphaSt;
+      // Subtle outline of the cutout
+      ctx.globalAlpha *= 0.3;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.3;
+      break;
+    }
+
+    case "noise-grain": {
+      // Procedural noise grain texture clipped to shape boundary
+      const savedAlphaN = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaN * 0.25;
+      ctx.fill(); // base tint
+      ctx.globalAlpha = savedAlphaN;
+
+      ctx.save();
+      ctx.clip();
+      const grainSpacing = Math.max(1.5, size * 0.015);
+      const extentN = size * 0.55;
+      ctx.globalAlpha = savedAlphaN * 0.6;
+      for (let gx = -extentN; gx <= extentN; gx += grainSpacing) {
+        for (let gy = -extentN; gy <= extentN; gy += grainSpacing) {
+          if (!rng) break;
+          const jx = (rng() - 0.5) * grainSpacing * 1.2;
+          const jy = (rng() - 0.5) * grainSpacing * 1.2;
+          const brightness = rng() > 0.5 ? 255 : 0;
+          const dotAlpha = 0.15 + rng() * 0.35;
+          ctx.globalAlpha = savedAlphaN * dotAlpha;
+          ctx.fillStyle = `rgba(${brightness},${brightness},${brightness},1)`;
+          const dotSize = grainSpacing * (0.3 + rng() * 0.5);
+          ctx.fillRect(gx + jx, gy + jy, dotSize, dotSize);
+        }
+      }
+      ctx.restore();
+      ctx.fillStyle = fillColor;
+      ctx.globalAlpha = savedAlphaN;
+      ctx.globalAlpha *= 0.4;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.4;
+      break;
+    }
+
+    case "wood-grain": {
+      // Parallel wavy lines simulating wood grain, clipped to shape
+      const savedAlphaW = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaW * 0.2;
+      ctx.fill(); // base tint
+      ctx.globalAlpha = savedAlphaW;
+
+      ctx.save();
+      ctx.clip();
+      const grainLineSpacing = Math.max(2, size * 0.035);
+      const extentW = size * 0.55;
+      const waveFreq = rng ? 3 + rng() * 5 : 5;
+      const waveAmp = rng ? size * (0.01 + rng() * 0.03) : size * 0.02;
+      const grainAngle = rng ? rng() * Math.PI : Math.PI * 0.25;
+      ctx.lineWidth = Math.max(0.5, strokeWidth * 0.3);
+      ctx.globalAlpha = savedAlphaW * 0.5;
+
+      const cosG = Math.cos(grainAngle);
+      const sinG = Math.sin(grainAngle);
+      for (let d = -extentW; d <= extentW; d += grainLineSpacing) {
+        ctx.beginPath();
+        for (let t = -extentW; t <= extentW; t += 2) {
+          const wave = Math.sin((t / extentW) * waveFreq * Math.PI) * waveAmp;
+          const px = t * cosG - (d + wave) * sinG;
+          const py = t * sinG + (d + wave) * cosG;
+          if (t === -extentW) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = savedAlphaW;
+      ctx.globalAlpha *= 0.35;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.35;
+      break;
+    }
+
+    case "marble-vein": {
+      // Branching vein lines on a soft fill, clipped to shape
+      const savedAlphaM = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaM * 0.35;
+      ctx.fill(); // soft base
+      ctx.globalAlpha = savedAlphaM;
+
+      ctx.save();
+      ctx.clip();
+      const veinCount = rng ? 2 + Math.floor(rng() * 3) : 3;
+      const extentM = size * 0.45;
+      ctx.lineWidth = Math.max(0.5, strokeWidth * 0.5);
+      ctx.globalAlpha = savedAlphaM * 0.4;
+
+      for (let v = 0; v < veinCount; v++) {
+        const startX = rng ? (rng() - 0.5) * extentM * 2 : 0;
+        const startY = rng ? -extentM + rng() * extentM * 0.5 : -extentM;
+        let vx = startX;
+        let vy = startY;
+        const steps = 15 + (rng ? Math.floor(rng() * 15) : 10);
+        const stepLen = size * 0.04;
+
+        ctx.beginPath();
+        ctx.moveTo(vx, vy);
+        for (let s = 0; s < steps; s++) {
+          const drift = rng ? (rng() - 0.5) * stepLen * 1.5 : 0;
+          vx += drift;
+          vy += stepLen;
+          ctx.lineTo(vx, vy);
+          // Branch ~20% of the time
+          if (rng && rng() < 0.2 && s > 2 && s < steps - 3) {
+            const branchDir = rng() < 0.5 ? -1 : 1;
+            let bx = vx;
+            let by = vy;
+            const bSteps = 3 + Math.floor(rng() * 5);
+            ctx.moveTo(bx, by);
+            for (let bs = 0; bs < bSteps; bs++) {
+              bx += branchDir * stepLen * (0.5 + rng() * 0.5);
+              by += stepLen * 0.6;
+              ctx.lineTo(bx, by);
+            }
+            ctx.moveTo(vx, vy); // return to main vein
+          }
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.globalAlpha = savedAlphaM;
+      ctx.globalAlpha *= 0.3;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.3;
+      break;
+    }
+
+    case "fabric-weave": {
+      // Interlocking horizontal/vertical threads clipped to shape
+      const savedAlphaF = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaF * 0.15;
+      ctx.fill(); // ghost base
+      ctx.globalAlpha = savedAlphaF;
+
+      ctx.save();
+      ctx.clip();
+      const threadSpacing = Math.max(2, size * 0.04);
+      const extentF = size * 0.55;
+      ctx.lineWidth = Math.max(0.8, threadSpacing * 0.5);
+      ctx.globalAlpha = savedAlphaF * 0.55;
+
+      // Horizontal threads
+      for (let y = -extentF; y <= extentF; y += threadSpacing * 2) {
+        ctx.beginPath();
+        ctx.moveTo(-extentF, y);
+        ctx.lineTo(extentF, y);
+        ctx.stroke();
+      }
+      // Vertical threads (offset by half spacing for weave effect)
+      ctx.globalAlpha = savedAlphaF * 0.45;
+      ctx.strokeStyle = fillColor;
+      for (let x = -extentF; x <= extentF; x += threadSpacing * 2) {
+        ctx.beginPath();
+        for (let y = -extentF; y <= extentF; y += threadSpacing * 2) {
+          // Over-under: draw segment, skip segment
+          ctx.moveTo(x, y);
+          ctx.lineTo(x, y + threadSpacing);
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle = strokeColor;
+      ctx.restore();
+      ctx.globalAlpha = savedAlphaF;
+      ctx.globalAlpha *= 0.3;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.3;
+      break;
+    }
+
     case "fill-and-stroke":
     default:
       ctx.fill();
@@ -357,4 +589,89 @@ export function enhanceShapeGeneration(
   }
 
   ctx.restore();
+}
+
+// ── Shape mirroring effect ──────────────────────────────────────────
+// Draws a shape and its mirror (reflected across an axis) for visual
+// symmetry. Works especially well with basic shapes like triangles,
+// crescents, and penrose tiles.
+
+export type MirrorAxis = "horizontal" | "vertical" | "diagonal" | "radial-4";
+
+/**
+ * Draw a shape with a mirrored reflection.
+ * The mirror is drawn at reduced opacity with optional offset.
+ */
+export function drawMirroredShape(
+  ctx: CanvasRenderingContext2D,
+  shape: string,
+  x: number,
+  y: number,
+  config: EnhanceShapeConfig & { mirrorAxis?: MirrorAxis; mirrorGap?: number },
+): void {
+  const { mirrorAxis = "horizontal", mirrorGap = 0 } = config;
+
+  // Draw the primary shape
+  enhanceShapeGeneration(ctx, shape, x, y, config);
+
+  // Draw the mirrored copy
+  ctx.save();
+  const savedAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = savedAlpha * 0.7; // mirror is slightly softer
+
+  switch (mirrorAxis) {
+    case "horizontal":
+      // Reflect across vertical axis at shape position
+      enhanceShapeGeneration(ctx, shape, x, y + mirrorGap, {
+        ...config,
+        rotation: -(config.rotation || 0),
+        size: config.size * 0.95,
+      });
+      break;
+    case "vertical":
+      enhanceShapeGeneration(ctx, shape, x + mirrorGap, y, {
+        ...config,
+        rotation: 180 - (config.rotation || 0),
+        size: config.size * 0.95,
+      });
+      break;
+    case "diagonal":
+      // Reflect across 45° axis
+      enhanceShapeGeneration(ctx, shape, x + mirrorGap * 0.7, y + mirrorGap * 0.7, {
+        ...config,
+        rotation: 90 - (config.rotation || 0),
+        size: config.size * 0.9,
+      });
+      break;
+    case "radial-4":
+      // Four-way radial mirror
+      for (let i = 1; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2;
+        const mx = x + Math.cos(angle) * mirrorGap;
+        const my = y + Math.sin(angle) * mirrorGap;
+        ctx.globalAlpha = savedAlpha * (0.7 - i * 0.1);
+        enhanceShapeGeneration(ctx, shape, mx, my, {
+          ...config,
+          rotation: (config.rotation || 0) + i * 90,
+          size: config.size * (0.95 - i * 0.05),
+        });
+      }
+      break;
+  }
+
+  ctx.globalAlpha = savedAlpha;
+  ctx.restore();
+}
+
+/**
+ * Pick a mirror axis deterministically.
+ * Returns null ~60% of the time (no mirroring).
+ */
+export function pickMirrorAxis(rng: () => number): MirrorAxis | null {
+  const roll = rng();
+  if (roll < 0.60) return null;
+  if (roll < 0.75) return "horizontal";
+  if (roll < 0.87) return "vertical";
+  if (roll < 0.95) return "diagonal";
+  return "radial-4";
 }

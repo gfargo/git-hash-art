@@ -35,9 +35,11 @@ import {
 } from "./canvas/colors";
 import {
     enhanceShapeGeneration,
+    drawMirroredShape,
+    pickMirrorAxis,
     pickBlendMode,
     pickRenderStyle,
-    type RenderStyle,
+    type RenderStyle
 } from "./canvas/draw";
 import { shapes } from "./canvas/shapes";
 import {
@@ -272,6 +274,92 @@ function drawBackground(
   }
 }
 
+// ── Shape constellations — pre-composed groups of shapes ────────
+
+interface ConstellationDef {
+  name: string;
+  /** Generate member positions/shapes relative to center */
+  build: (rng: () => number, baseSize: number) => Array<{
+    dx: number; dy: number; shape: string; size: number; rotation: number;
+  }>;
+}
+
+const CONSTELLATIONS: ConstellationDef[] = [
+  {
+    name: "flanked-triangle",
+    build: (rng, baseSize) => {
+      const gap = baseSize * (0.6 + rng() * 0.3);
+      return [
+        { dx: 0, dy: 0, shape: "triangle", size: baseSize, rotation: rng() * 360 },
+        { dx: -gap, dy: gap * 0.3, shape: "circle", size: baseSize * 0.35, rotation: 0 },
+        { dx: gap, dy: gap * 0.3, shape: "circle", size: baseSize * 0.35, rotation: 0 },
+      ];
+    },
+  },
+  {
+    name: "hexagon-ring",
+    build: (rng, baseSize) => {
+      const members: Array<{ dx: number; dy: number; shape: string; size: number; rotation: number }> = [];
+      const count = 5 + Math.floor(rng() * 2);
+      const ringR = baseSize * 0.6;
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        members.push({
+          dx: Math.cos(angle) * ringR,
+          dy: Math.sin(angle) * ringR,
+          shape: "hexagon",
+          size: baseSize * (0.25 + rng() * 0.1),
+          rotation: (angle * 180) / Math.PI,
+        });
+      }
+      return members;
+    },
+  },
+  {
+    name: "spiral-dots",
+    build: (rng, baseSize) => {
+      const members: Array<{ dx: number; dy: number; shape: string; size: number; rotation: number }> = [];
+      const count = 7 + Math.floor(rng() * 5);
+      const turns = 1.5 + rng();
+      for (let i = 0; i < count; i++) {
+        const t = i / count;
+        const angle = t * Math.PI * 2 * turns;
+        const r = t * baseSize * 0.7;
+        members.push({
+          dx: Math.cos(angle) * r,
+          dy: Math.sin(angle) * r,
+          shape: "circle",
+          size: baseSize * (0.08 + (1 - t) * 0.12),
+          rotation: 0,
+        });
+      }
+      return members;
+    },
+  },
+  {
+    name: "diamond-cluster",
+    build: (rng, baseSize) => {
+      const gap = baseSize * 0.45;
+      return [
+        { dx: 0, dy: -gap, shape: "diamond", size: baseSize * 0.4, rotation: 0 },
+        { dx: gap, dy: 0, shape: "diamond", size: baseSize * 0.35, rotation: 15 },
+        { dx: 0, dy: gap, shape: "diamond", size: baseSize * 0.3, rotation: 30 },
+        { dx: -gap, dy: 0, shape: "diamond", size: baseSize * 0.35, rotation: -15 },
+      ];
+    },
+  },
+  {
+    name: "crescent-pair",
+    build: (rng, baseSize) => {
+      const gap = baseSize * 0.5;
+      return [
+        { dx: -gap * 0.4, dy: 0, shape: "crescent", size: baseSize * 0.5, rotation: rng() * 30 },
+        { dx: gap * 0.4, dy: 0, shape: "crescent", size: baseSize * 0.45, rotation: 180 + rng() * 30 },
+      ];
+    },
+  },
+];
+
 // ── Main render function ────────────────────────────────────────────
 
 export function renderHashArt(
@@ -382,6 +470,69 @@ export function renderHashArt(
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.stroke();
+  }
+  ctx.globalCompositeOperation = "source-over";
+
+  // ── 1c. Background pattern layer — subtle textured paper ───────
+  const bgPatternRoll = rng();
+  if (bgPatternRoll < 0.6) {
+    ctx.save();
+    ctx.globalCompositeOperation = "soft-light";
+    const patternOpacity = 0.02 + rng() * 0.04;
+    const patternColor = hexWithAlpha(colorHierarchy.dominant, 0.15);
+
+    if (bgPatternRoll < 0.2) {
+      // Dot grid
+      const dotSpacing = Math.max(8, Math.min(width, height) * (0.015 + rng() * 0.015));
+      const dotR = dotSpacing * 0.08;
+      ctx.globalAlpha = patternOpacity;
+      ctx.fillStyle = patternColor;
+      for (let px = 0; px < width; px += dotSpacing) {
+        for (let py = 0; py < height; py += dotSpacing) {
+          ctx.beginPath();
+          ctx.arc(px, py, dotR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else if (bgPatternRoll < 0.4) {
+      // Diagonal lines
+      const lineSpacing = Math.max(6, Math.min(width, height) * (0.02 + rng() * 0.02));
+      ctx.globalAlpha = patternOpacity;
+      ctx.strokeStyle = patternColor;
+      ctx.lineWidth = 0.5 * scaleFactor;
+      const diag = Math.hypot(width, height);
+      for (let d = -diag; d < diag; d += lineSpacing) {
+        ctx.beginPath();
+        ctx.moveTo(d, 0);
+        ctx.lineTo(d + height, height);
+        ctx.stroke();
+      }
+    } else {
+      // Tessellation — hexagonal grid of tiny shapes
+      const tessSize = Math.max(10, Math.min(width, height) * (0.025 + rng() * 0.02));
+      const tessH = tessSize * Math.sqrt(3);
+      ctx.globalAlpha = patternOpacity * 0.7;
+      ctx.strokeStyle = patternColor;
+      ctx.lineWidth = 0.4 * scaleFactor;
+      for (let row = 0; row * tessH < height + tessH; row++) {
+        const offsetX = (row % 2) * tessSize * 0.75;
+        for (let col = 0; col * tessSize * 1.5 < width + tessSize * 1.5; col++) {
+          const hx = col * tessSize * 1.5 + offsetX;
+          const hy = row * tessH;
+          ctx.beginPath();
+          for (let s = 0; s < 6; s++) {
+            const angle = (Math.PI / 3) * s - Math.PI / 6;
+            const vx = hx + Math.cos(angle) * tessSize * 0.5;
+            const vy = hy + Math.sin(angle) * tessSize * 0.5;
+            if (s === 0) ctx.moveTo(vx, vy);
+            else ctx.lineTo(vx, vy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
   }
   ctx.globalCompositeOperation = "source-over";
 
@@ -533,6 +684,12 @@ export function renderHashArt(
     // Atmospheric desaturation for later layers
     const atmosphericDesat = layerRatio * 0.3;
 
+    // Depth-of-field simulation — later layers are "further away"
+    // Reduce stroke widths and shift colors toward the background
+    const dofFactor = 1 - layerRatio * 0.5; // 1.0 for front layer, 0.5 for back
+    const dofStrokeScale = 0.4 + dofFactor * 0.6; // strokes thin out with depth
+    const dofContrastReduction = layerRatio * 0.2; // colors fade toward bg
+
     for (let i = 0; i < numShapes; i++) {
       // Position from composition mode, then focal bias
       const rawPos = getCompositionPosition(
@@ -605,9 +762,11 @@ export function renderHashArt(
       const fillAlpha = 0.2 + rng() * 0.5;
       const transparentFill = hexWithAlpha(fillColor, fillAlpha);
 
-      const strokeWidth = (0.5 + rng() * 2.0) * scaleFactor;
+      const strokeWidth = (0.5 + rng() * 2.0) * scaleFactor * dofStrokeScale;
 
-      ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5);
+      // Depth-of-field: reduce opacity slightly for distant layers
+      const dofOpacityScale = 1 - dofContrastReduction;
+      ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5) * dofOpacityScale;
 
       // Glow on sacred shapes more often — scaled by archetype
       const isSacred = SACRED_SHAPES.includes(shape);
@@ -634,13 +793,47 @@ export function renderHashArt(
       const shadowOffX = shadowDist * Math.cos(lightAngle);
       const shadowOffY = shadowDist * Math.sin(lightAngle);
 
-      enhanceShapeGeneration(ctx, shape, x, y, {
+      // ── 5a. Tangent placement — nudge toward nearest shape edge ──
+      let finalX = x;
+      let finalY = y;
+      if (shapePositions.length > 0 && rng() < 0.25) {
+        // Find nearest placed shape
+        let nearestDist = Infinity;
+        let nearestPos: { x: number; y: number; size: number } | null = null;
+        for (const sp of shapePositions) {
+          const d = Math.hypot(x - sp.x, y - sp.y);
+          if (d < nearestDist && d > 0) {
+            nearestDist = d;
+            nearestPos = sp;
+          }
+        }
+        if (nearestPos) {
+          // Target distance: edges kissing (sum of half-sizes)
+          const targetDist = (size + nearestPos.size) * 0.5;
+          if (nearestDist > targetDist * 0.5 && nearestDist < targetDist * 3) {
+            const angle = Math.atan2(y - nearestPos.y, x - nearestPos.x);
+            finalX = nearestPos.x + Math.cos(angle) * targetDist;
+            finalY = nearestPos.y + Math.sin(angle) * targetDist;
+            // Keep in bounds
+            finalX = Math.max(0, Math.min(width, finalX));
+            finalY = Math.max(0, Math.min(height, finalY));
+          }
+        }
+      }
+
+      // ── 5b. Shape mirroring — basic shapes get reflected copies ──
+      const mirrorAxis = pickMirrorAxis(rng);
+      const isBasicShape = ["circle", "triangle", "square", "hexagon", "star",
+        "diamond", "crescent", "penroseTile", "reuleauxTriangle"].includes(shape);
+      const shouldMirror = mirrorAxis !== null && isBasicShape && size > adjustedMaxSize * 0.2;
+
+      const shapeConfig = {
         fillColor: transparentFill,
         strokeColor,
         strokeWidth,
         size,
         rotation,
-        proportionType: "GOLDEN_RATIO",
+        proportionType: "GOLDEN_RATIO" as const,
         glowRadius: glowRadius || (shadowDist > 0 ? shadowDist * 2 : 0),
         glowColor: hasGlow
           ? hexWithAlpha(fillColor, 0.6)
@@ -648,19 +841,29 @@ export function renderHashArt(
         gradientFillEnd: gradientEnd,
         renderStyle: finalRenderStyle,
         rng,
-      });
+      };
 
-      shapePositions.push({ x, y, size, shape });
+      if (shouldMirror) {
+        drawMirroredShape(ctx, shape, finalX, finalY, {
+          ...shapeConfig,
+          mirrorAxis: mirrorAxis!,
+          mirrorGap: size * (0.1 + rng() * 0.3),
+        });
+      } else {
+        enhanceShapeGeneration(ctx, shape, finalX, finalY, shapeConfig);
+      }
 
-      // ── 5b. Size echo — large shapes spawn trailing smaller copies ──
+      shapePositions.push({ x: finalX, y: finalY, size, shape });
+
+      // ── 5c. Size echo — large shapes spawn trailing smaller copies ──
       if (size > adjustedMaxSize * 0.5 && rng() < 0.2) {
         const echoCount = 2 + Math.floor(rng() * 2);
         const echoAngle = rng() * Math.PI * 2;
         for (let e = 0; e < echoCount; e++) {
           const echoScale = 0.3 - e * 0.08;
           const echoDist = size * (0.6 + e * 0.4);
-          const echoX = x + Math.cos(echoAngle) * echoDist;
-          const echoY = y + Math.sin(echoAngle) * echoDist;
+          const echoX = finalX + Math.cos(echoAngle) * echoDist;
+          const echoY = finalY + Math.sin(echoAngle) * echoDist;
           const echoSize = size * Math.max(0.1, echoScale);
 
           if (echoX < 0 || echoX > width || echoY < 0 || echoY > height) continue;
@@ -680,7 +883,7 @@ export function renderHashArt(
         }
       }
 
-      // ── 5c. Recursive nesting ──────────────────────────────────
+      // ── 5d. Recursive nesting ──────────────────────────────────
       if (size > adjustedMaxSize * 0.4 && rng() < 0.15) {
         const innerCount = 1 + Math.floor(rng() * 3);
         for (let n = 0; n < innerCount; n++) {
@@ -700,8 +903,8 @@ export function renderHashArt(
           enhanceShapeGeneration(
             ctx,
             innerShape,
-            x + innerOffX,
-            y + innerOffY,
+            finalX + innerOffX,
+            finalY + innerOffY,
             {
               fillColor: innerFill,
               strokeColor: hexWithAlpha(strokeColor, 0.5),
@@ -713,6 +916,49 @@ export function renderHashArt(
               rng,
             },
           );
+        }
+      }
+
+      // ── 5e. Shape constellations — pre-composed groups ─────────
+      if (size > adjustedMaxSize * 0.35 && rng() < 0.12) {
+        const constellation = CONSTELLATIONS[Math.floor(rng() * CONSTELLATIONS.length)];
+        const members = constellation.build(rng, size);
+        const groupRotation = rng() * Math.PI * 2;
+        const cosR = Math.cos(groupRotation);
+        const sinR = Math.sin(groupRotation);
+
+        for (const member of members) {
+          // Rotate the group offset by the group rotation
+          const mx = finalX + member.dx * cosR - member.dy * sinR;
+          const my = finalY + member.dx * sinR + member.dy * cosR;
+
+          if (mx < 0 || mx > width || my < 0 || my > height) continue;
+
+          const memberFill = hexWithAlpha(
+            jitterColorHSL(pickHierarchyColor(colorHierarchy, rng), rng, 8, 0.06),
+            fillAlpha * 0.8,
+          );
+          const memberStroke = enforceContrast(
+            jitterColorHSL(strokeBase, rng, 5, 0.04), bgLum,
+          );
+
+          ctx.globalAlpha = layerOpacity * 0.6;
+          // Use the member's shape if available, otherwise fall back to palette
+          const memberShape = shapeNames.includes(member.shape)
+            ? member.shape
+            : pickShapeFromPalette(shapePalette, rng, member.size / adjustedMaxSize);
+
+          enhanceShapeGeneration(ctx, memberShape, mx, my, {
+            fillColor: memberFill,
+            strokeColor: memberStroke,
+            strokeWidth: strokeWidth * 0.7,
+            size: member.size,
+            rotation: member.rotation + (groupRotation * 180) / Math.PI,
+            proportionType: "GOLDEN_RATIO",
+            renderStyle: pickStyleForShape(memberShape, layerRenderStyle, rng) as RenderStyle,
+            rng,
+          });
+          shapePositions.push({ x: mx, y: my, size: member.size, shape: memberShape });
         }
       }
     }

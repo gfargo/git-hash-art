@@ -28,18 +28,18 @@ Examples:
 
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const command = args[0];
-  const parsed = { command, hash: null, options: {} };
+  const parsed = { command: null, hash: null, options: {} };
 
-  let i = 1;
-  if (command === "generate") {
-    parsed.hash = args[1];
-    i = 2;
-  }
-
+  let i = 0;
   while (i < args.length) {
     const arg = args[i];
-    if (arg === "--width" && args[i + 1]) {
+    if (arg === "--help" || arg === "-h") {
+      parsed.command = "help";
+      i += 1;
+    } else if (arg === "--list-presets") {
+      parsed.command = "list-presets";
+      i += 1;
+    } else if (arg === "--width" && args[i + 1]) {
       parsed.options.width = parseInt(args[i + 1], 10);
       i += 2;
     } else if (arg === "--height" && args[i + 1]) {
@@ -57,11 +57,14 @@ function parseArgs(argv) {
     } else if (arg === "--grid" && args[i + 1]) {
       parsed.options.gridSize = parseInt(args[i + 1], 10);
       i += 2;
-    } else if (arg === "--list-presets") {
-      parsed.command = "list-presets";
-      i += 1;
-    } else if (arg === "--help" || arg === "-h") {
-      parsed.command = "help";
+    } else if (!arg.startsWith("-") && !parsed.command) {
+      // First positional arg is the command
+      parsed.command = arg;
+      if (parsed.command === "generate" && args[i + 1] && !args[i + 1].startsWith("-")) {
+        parsed.hash = args[i + 1];
+        i += 2;
+        continue;
+      }
       i += 1;
     } else {
       i += 1;
