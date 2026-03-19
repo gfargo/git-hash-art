@@ -48,7 +48,7 @@ import {
     pickStyleForShape,
     SHAPE_PROFILES
 } from "./canvas/shapes/affinity";
-import { createRng, seedFromHash } from "./utils";
+import { createRng, seedFromHash, createSimplexNoise, createFBM } from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
 import { selectArchetype, type BackgroundStyle } from "./archetypes";
 
@@ -74,7 +74,8 @@ type CompositionMode =
   | "flow-field"
   | "spiral"
   | "grid-subdivision"
-  | "clustered";
+  | "clustered"
+  | "golden-spiral";
 
 const COMPOSITION_MODES: CompositionMode[] = [
   "radial",
@@ -82,6 +83,7 @@ const COMPOSITION_MODES: CompositionMode[] = [
   "spiral",
   "grid-subdivision",
   "clustered",
+  "golden-spiral",
 ];
 
 // ── Helper: get position based on composition mode ──────────────────
@@ -137,6 +139,17 @@ function getCompositionPosition(
     case "flow-field":
     default: {
       return { x: rng() * width, y: rng() * height };
+    }
+    case "golden-spiral": {
+      // Logarithmic spiral: r = a * e^(b*theta), with golden angle spacing
+      const PHI = (1 + Math.sqrt(5)) / 2;
+      const goldenAngle = 2 * Math.PI / (PHI * PHI); // ~137.5° in radians
+      const t = shapeIndex / totalShapes;
+      const angle = shapeIndex * goldenAngle + rng() * 0.3;
+      const maxR = Math.min(width, height) * 0.44;
+      // Shapes spiral outward with sqrt distribution for even area coverage
+      const r = Math.sqrt(t) * maxR + (rng() - 0.5) * maxR * 0.08;
+      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     }
   }
 }
@@ -643,16 +656,26 @@ export function renderHashArt(
   }
   ctx.globalAlpha = 1;
 
-  // ── 4. Flow field seed values ──────────────────────────────────
+  // ── 4. Flow field — simplex noise for organic variation ─────────
+  // Create a seeded simplex noise field (unique per hash)
+  const noiseFieldRng = createRng(seedFromHash(gitHash, 333));
+  const simplexNoise = createSimplexNoise(noiseFieldRng);
+  const fbmNoise = createFBM(simplexNoise, 3, 2.0, 0.5);
   const fieldAngleBase = rng() * Math.PI * 2;
-  const fieldFreq = 0.5 + rng() * 2;
+  const fieldFreq = 1.5 + rng() * 2.5; // noise sampling frequency
 
   function flowAngle(x: number, y: number): number {
-    return (
-      fieldAngleBase +
-      Math.sin((x / width) * fieldFreq * Math.PI * 2) * Math.PI * 0.5 +
-      Math.cos((y / height) * fieldFreq * Math.PI * 2) * Math.PI * 0.5
-    );
+    // Sample FBM noise at the position, scaled by frequency
+    const nx = (x / width) * fieldFreq;
+    const ny = (y / height) * fieldFreq;
+    return fieldAngleBase + fbmNoise(nx, ny) * Math.PI;
+  }
+
+  // Noise-based size modulation — shapes in "high noise" areas get scaled
+  function noiseSizeModulation(x: number, y: number): number {
+    const n = simplexNoise((x / width) * 3, (y / height) * 3);
+    // Map [-1,1] to [0.7, 1.3] — subtle terrain-like size variation
+    return 0.7 + (n + 1) * 0.3;
   }
 
   // Track all placed shapes for density checks and connecting curves
@@ -775,7 +798,7 @@ export function renderHashArt(
       const sizeT = Math.pow(rng(), archetype.sizePower);
       const size =
         (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
-        layerSizeScale;
+        layerSizeScale * noiseSizeModulation(x, y);
 
       // Size fraction for affinity-aware shape selection
       const sizeFraction = size / adjustedMaxSize;
@@ -1049,6 +1072,72 @@ export function renderHashArt(
 
   // Reset blend mode for post-processing passes
   ctx.globalCompositeOperation = "source-over";
+
+  // ── 5f. Layered masking / cutout portals ───────────────────────
+  // ~18% of images get 1-3 portal windows that paint over foreground
+  // with a tinted background wash, creating a "peek through" effect.
+  if (rng() < 0.18 && shapePositions.length > 3) {
+    const portalCount = 1 + Math.floor(rng() * 2);
+    for (let p = 0; p < portalCount; p++) {
+      // Pick a position biased toward placed shapes
+      const sourceShape = shapePositions[Math.floor(rng() * shapePositions.length)];
+      const portalX = sourceShape.x + (rng() - 0.5) * sourceShape.size * 0.5;
+      const portalY = sourceShape.y + (rng() - 0.5) * sourceShape.size * 0.5;
+      const portalSize = adjustedMaxSize * (0.15 + rng() * 0.25);
+
+      // Pick a portal shape from the palette
+      const portalShape = pickShapeFromPalette(shapePalette, rng, portalSize / adjustedMaxSize);
+      const portalRotation = rng() * 360;
+      const portalAlpha = 0.6 + rng() * 0.35;
+
+      ctx.save();
+      ctx.translate(portalX, portalY);
+      ctx.rotate((portalRotation * Math.PI) / 180);
+
+      // Step 1: Clip to the portal shape and fill with background wash
+      ctx.beginPath();
+      shapes[portalShape]?.(ctx, portalSize);
+      ctx.clip();
+
+      // Fill the clipped region with a radial gradient from background colors
+      const portalColor = jitterColorHSL(bgStart, rng, 15, 0.1);
+      const portalGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, portalSize);
+      portalGrad.addColorStop(0, portalColor);
+      portalGrad.addColorStop(1, bgEnd);
+      ctx.globalAlpha = portalAlpha;
+      ctx.fillStyle = portalGrad;
+      ctx.fillRect(-portalSize, -portalSize, portalSize * 2, portalSize * 2);
+
+      // Optional: subtle inner texture — a few tiny dots inside the portal
+      if (rng() < 0.5) {
+        const dotCount = 3 + Math.floor(rng() * 5);
+        ctx.globalAlpha = portalAlpha * 0.3;
+        ctx.fillStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.2);
+        for (let d = 0; d < dotCount; d++) {
+          const dx = (rng() - 0.5) * portalSize * 1.4;
+          const dy = (rng() - 0.5) * portalSize * 1.4;
+          const dr = (1 + rng() * 3) * scaleFactor;
+          ctx.beginPath();
+          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+
+      // Step 2: Draw a border ring around the portal (outside the clip)
+      ctx.save();
+      ctx.translate(portalX, portalY);
+      ctx.rotate((portalRotation * Math.PI) / 180);
+      ctx.globalAlpha = 0.15 + rng() * 0.2;
+      ctx.strokeStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.5);
+      ctx.lineWidth = (1.5 + rng() * 2.5) * scaleFactor;
+      ctx.beginPath();
+      shapes[portalShape]?.(ctx, portalSize * 1.06);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
 
   // ── 6. Flow-line pass — variable color, branching, pressure ────
