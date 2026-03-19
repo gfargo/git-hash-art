@@ -721,6 +721,8 @@ export function renderHashArt(
       gradientFillEnd: jitterColorHSL(colorHierarchy.secondary, rng, 10, 0.1),
       renderStyle: heroStyle,
       rng,
+      lightAngle,
+      scaleFactor,
     });
 
     heroCenter = { x: heroFocal.x, y: heroFocal.y, size: heroSize };
@@ -923,6 +925,8 @@ export function renderHashArt(
         gradientFillEnd: gradientEnd,
         renderStyle: finalRenderStyle,
         rng,
+        lightAngle,
+        scaleFactor,
       };
 
       if (shouldMirror) {
@@ -1374,6 +1378,158 @@ export function renderHashArt(
     ctx.drawImage(canvas, 0, 0, width, height);
     ctx.restore();
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  // 10d. Gradient map — map luminance through a two-color gradient
+  // Uses dominant→accent as the dark→light ramp for a cohesive tonal look
+  if (rng() < 0.35) {
+    const gmDark = colorHierarchy.dominant;
+    const gmLight = colorHierarchy.accent;
+    ctx.globalAlpha = 0.06 + rng() * 0.06; // very subtle: 6-12%
+    ctx.globalCompositeOperation = "color";
+    // Paint a linear gradient from dark color (top) to light color (bottom)
+    const gmGrad = ctx.createLinearGradient(0, 0, 0, height);
+    gmGrad.addColorStop(0, gmDark);
+    gmGrad.addColorStop(1, gmLight);
+    ctx.fillStyle = gmGrad;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ── 10e. Generative borders — archetype-driven decorative frames ──
+  {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    const borderRng = createRng(seedFromHash(gitHash, 314));
+    const borderPad = Math.min(width, height) * 0.025;
+    const borderColor = hexWithAlpha(colorHierarchy.accent, 0.2);
+    const borderColorSolid = colorHierarchy.accent;
+    const archName = archetype.name;
+
+    if (archName.includes("geometric") || archName.includes("op-art") || archName.includes("shattered")) {
+      // Clean ruled lines with corner ornaments
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = Math.max(1, 1.5 * scaleFactor);
+      ctx.globalAlpha = 0.18 + borderRng() * 0.1;
+
+      // Outer rule
+      ctx.strokeRect(borderPad, borderPad, width - borderPad * 2, height - borderPad * 2);
+      // Inner rule (thinner, offset)
+      const innerPad = borderPad * 1.8;
+      ctx.lineWidth = Math.max(0.5, 0.8 * scaleFactor);
+      ctx.globalAlpha *= 0.7;
+      ctx.strokeRect(innerPad, innerPad, width - innerPad * 2, height - innerPad * 2);
+
+      // Corner ornaments — small squares at each corner
+      const ornSize = borderPad * 0.6;
+      ctx.fillStyle = hexWithAlpha(borderColorSolid, 0.12);
+      const corners = [
+        [borderPad, borderPad],
+        [width - borderPad - ornSize, borderPad],
+        [borderPad, height - borderPad - ornSize],
+        [width - borderPad - ornSize, height - borderPad - ornSize],
+      ];
+      for (const [cx2, cy2] of corners) {
+        ctx.fillRect(cx2, cy2, ornSize, ornSize);
+        // Diagonal cross inside ornament
+        ctx.beginPath();
+        ctx.moveTo(cx2, cy2);
+        ctx.lineTo(cx2 + ornSize, cy2 + ornSize);
+        ctx.moveTo(cx2 + ornSize, cy2);
+        ctx.lineTo(cx2, cy2 + ornSize);
+        ctx.stroke();
+      }
+    } else if (archName.includes("botanical") || archName.includes("organic") || archName.includes("watercolor")) {
+      // Vine tendrils — organic curving lines along edges
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
+      ctx.lineWidth = Math.max(0.8, 1.2 * scaleFactor);
+      ctx.globalAlpha = 0.12 + borderRng() * 0.08;
+      ctx.lineCap = "round";
+
+      const tendrilCount = 8 + Math.floor(borderRng() * 8);
+      for (let t = 0; t < tendrilCount; t++) {
+        // Start from a random edge point
+        const edge = Math.floor(borderRng() * 4);
+        let tx: number, ty: number;
+        if (edge === 0) { tx = borderRng() * width; ty = borderPad; }
+        else if (edge === 1) { tx = borderRng() * width; ty = height - borderPad; }
+        else if (edge === 2) { tx = borderPad; ty = borderRng() * height; }
+        else { tx = width - borderPad; ty = borderRng() * height; }
+
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        const segs = 3 + Math.floor(borderRng() * 4);
+        for (let s = 0; s < segs; s++) {
+          const inward = borderPad * (1 + borderRng() * 2);
+          // Curl inward from edge
+          const cpx2 = tx + (borderRng() - 0.5) * borderPad * 4;
+          const cpy2 = ty + (edge < 2 ? (edge === 0 ? inward : -inward) : 0);
+          const cpx3 = tx + (edge >= 2 ? (edge === 2 ? inward : -inward) : (borderRng() - 0.5) * borderPad * 3);
+          const cpy3 = ty + (borderRng() - 0.5) * borderPad * 3;
+          tx = cpx3;
+          ty = cpy3;
+          ctx.quadraticCurveTo(cpx2, cpy2, tx, ty);
+        }
+        ctx.stroke();
+
+        // Small leaf/dot at tendril end
+        if (borderRng() < 0.6) {
+          ctx.beginPath();
+          ctx.arc(tx, ty, borderPad * (0.15 + borderRng() * 0.2), 0, Math.PI * 2);
+          ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.08);
+          ctx.fill();
+        }
+      }
+    } else if (archName.includes("celestial") || archName.includes("cosmic") || archName.includes("neon")) {
+      // Star-studded arcs along edges
+      ctx.globalAlpha = 0.1 + borderRng() * 0.08;
+      ctx.fillStyle = hexWithAlpha(colorHierarchy.accent, 0.2);
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.accent, 0.12);
+      ctx.lineWidth = Math.max(0.5, 0.7 * scaleFactor);
+
+      // Subtle arc along top and bottom
+      ctx.beginPath();
+      ctx.arc(cx, -height * 0.3, height * 0.6, 0.3, Math.PI - 0.3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, height * 1.3, height * 0.6, Math.PI + 0.3, -0.3);
+      ctx.stroke();
+
+      // Scatter small stars along the border region
+      const starCount = 15 + Math.floor(borderRng() * 15);
+      for (let s = 0; s < starCount; s++) {
+        const edge = Math.floor(borderRng() * 4);
+        let sx: number, sy: number;
+        if (edge === 0) { sx = borderRng() * width; sy = borderPad * (0.5 + borderRng()); }
+        else if (edge === 1) { sx = borderRng() * width; sy = height - borderPad * (0.5 + borderRng()); }
+        else if (edge === 2) { sx = borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
+        else { sx = width - borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
+
+        const starR = (1 + borderRng() * 2.5) * scaleFactor;
+        // 4-point star
+        ctx.beginPath();
+        for (let p = 0; p < 8; p++) {
+          const a = (p / 8) * Math.PI * 2;
+          const r = p % 2 === 0 ? starR : starR * 0.4;
+          const px2 = sx + Math.cos(a) * r;
+          const py2 = sy + Math.sin(a) * r;
+          if (p === 0) ctx.moveTo(px2, py2);
+          else ctx.lineTo(px2, py2);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (archName.includes("minimal") || archName.includes("monochrome") || archName.includes("stipple")) {
+      // Thin single rule — understated elegance
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);
+      ctx.lineWidth = Math.max(0.5, 0.6 * scaleFactor);
+      ctx.globalAlpha = 0.1 + borderRng() * 0.06;
+      ctx.strokeRect(borderPad * 1.5, borderPad * 1.5, width - borderPad * 3, height - borderPad * 3);
+    }
+    // Other archetypes: no border (intentional — not every image needs one)
+
+    ctx.restore();
   }
 
   // ── 11. Signature mark — unique geometric chop from hash prefix ──

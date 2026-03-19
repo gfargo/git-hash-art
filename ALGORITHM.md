@@ -51,7 +51,9 @@ Hash String
        │   ├─ Atmospheric Depth (desaturation on later layers)
        │   ├─ Temperature Contrast (foreground opposite to background)
        │   ├─ Styling (transparency, glow, gradients, HSL jitter)
+       │   ├─ Shadow & Highlight (drop shadow + specular highlight per shape)
        │   ├─ Organic Edges (~15% watercolor bleed)
+       │   ├─ Edge Erosion (watercolor + hand-drawn styles get irregular boundary bites)
        │   ├─ 5a. Tangent Placement (~25% nudge toward nearest shape edge)
        │   ├─ 5b. Shape Mirroring (~40% of basic shapes get reflected copies)
        │   ├─ 5c. Size Echo (~20% of large shapes spawn trailing copies)
@@ -68,7 +70,9 @@ Hash String
        11. Post-Processing
            ├─ Color Grading (unified tone overlay)
            ├─ Chromatic Aberration (neon/cosmic/ethereal only)
-           └─ Bloom (neon/cosmic only)
+           ├─ Bloom (neon/cosmic only)
+           └─ Gradient Map (~35% chance, luminance-mapped two-color overlay)
+       11b. Generative Borders (archetype-driven decorative frames)
        12. Signature Mark (deterministic geometric chop mark)
 ```
 
@@ -415,7 +419,27 @@ For each shape in a layer:
 9. **Contrast enforcement:** Fill and stroke colors checked against background luminance
 10. **Styling:** Affinity-aware render style, optional glow (sacred shapes 45% base chance × archetype multiplier), optional radial gradient fill (30% chance)
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
-12. **Light direction:** Non-glowing shapes get a subtle shadow offset along the consistent light angle
+12. **Shadow & highlight:** Each shape receives a directional drop shadow and specular highlight based on the consistent light angle (see below)
+
+### Shadow & Highlight System
+
+Every shape receives lighting effects based on a single consistent light direction (random angle, fixed for the entire image):
+
+**Drop Shadow:**
+- Offset: 3.5% of shape size along the opposite of the light direction
+- Blur radius: 6% of shape size
+- Color: `rgba(0,0,0,0.12)` — subtle enough to add depth without muddying colors
+- Applied via Canvas `shadowOffset` + `shadowBlur` properties before the shape is drawn
+- Shapes with glow effects use the glow instead (no double-shadow)
+
+**Specular Highlight:**
+- Position: 15% of shape size along the light direction from center
+- Radius: 35% of shape size
+- Gradient: white at 18% opacity → 5% → 0% (radial falloff)
+- Composited via `soft-light` to interact naturally with the shape's fill color
+- Only applied to shapes larger than 15px (tiny shapes don't benefit)
+
+The combination creates a subtle 3D effect where shapes appear to float above the background, with consistent lighting across the entire composition.
 
 ### 5a. Tangent Placement
 
@@ -542,11 +566,19 @@ Motion lines are drawn after the main shape layers but before symmetry mirroring
 
 ### Watercolor Detail
 
-The watercolor style simulates wet media through 4 passes:
+The watercolor style simulates wet media through 5 passes:
 1. **Base wash:** Shape drawn at 108% scale, 15% opacity — soft bleed beyond the boundary
 2. **Offset washes:** 4–5 passes with radial displacement (random angle, up to 5% of size) — organic edge irregularity
 3. **Edge darkening:** Shape drawn at 85–93% scale with lightened fill — simulates pigment pooling at boundaries where the inner area dries lighter
-4. **Delicate stroke:** Thin outline (60% of normal width) at 25% opacity
+4. **Edge erosion:** 6–14 small circular bites erased along the shape boundary using `destination-out` compositing at 60–90% opacity. Bites are placed at 85–110% of the shape's edge radius with sizes 2–6% of the shape, creating the irregular, feathered edges characteristic of real watercolor on textured paper
+5. **Delicate stroke:** Thin outline (60% of normal width) at 25% opacity
+
+### Hand-Drawn Edge Erosion
+
+The `hand-drawn` style also receives organic edge erosion after its wobbly stroke passes:
+- 4–10 small circular bites erased along the boundary at 90–110% of the edge radius
+- Bite sizes are slightly smaller than watercolor (1.5–4.5% of shape size) for a rougher, torn-paper feel
+- Combined with the wobbly multi-pass strokes, this creates shapes that look like they were drawn on rough paper with a slightly dry pen
 
 ## 11. Flow Lines
 
@@ -587,6 +619,31 @@ Only for `neon-glow`, `cosmic`, and `ethereal` archetypes. The canvas is drawn o
 ### Bloom
 
 Only for `neon-glow` and `cosmic` archetypes. The canvas is redrawn with `shadowBlur` at 30px (scaled) and white shadow color, composited via `screen` at 8% opacity. This creates a soft glow around bright areas.
+
+### Gradient Map
+
+~35% of images receive a **gradient map** post-processing pass — a technique borrowed from Photoshop that maps the image's luminance through a two-color gradient:
+
+- **Dark color:** The hierarchy's dominant color
+- **Light color:** The hierarchy's accent color
+- **Application:** A linear gradient (top = dark, bottom = light) is painted over the entire canvas using `color` compositing mode at 6–12% opacity
+- **Effect:** Shadows take on the dominant color's hue while highlights shift toward the accent, creating a cohesive tonal relationship across the entire image
+
+The `color` blend mode only affects hue and saturation (not luminance), so the gradient map tints the image without changing its brightness structure. At 6–12% opacity, the effect is subtle — it unifies the color temperature without overpowering the original palette.
+
+### Generative Borders
+
+After all post-processing, archetype-appropriate decorative borders are drawn to frame the composition. The border style is keyed on the archetype name, with a separate RNG (seeded with salt 314) for deterministic border patterns:
+
+| Archetype Group | Border Style |
+| --------------- | ------------ |
+| geometric, op-art, shattered-glass | Clean ruled double lines with corner ornaments (small squares with diagonal crosses) |
+| botanical, organic-flow, watercolor-wash | Organic vine tendrils curling inward from edges, with small leaf dots at tendril ends |
+| celestial, cosmic, neon-glow | Subtle arcs along top/bottom edges + scattered 4-point stars in the border region |
+| minimal, monochrome-ink, stipple-portrait | Single thin rule — understated elegance |
+| Others | No border (intentional — not every image needs framing) |
+
+Border elements use hierarchy colors at very low opacity (10–25%) so they frame without competing with the main composition. The border padding is 2.5% of the shorter canvas dimension.
 
 ## 13. Signature Mark
 

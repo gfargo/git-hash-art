@@ -91,6 +91,10 @@ interface EnhanceShapeConfig extends DrawShapeConfig {
   renderStyle?: RenderStyle;
   /** RNG for watercolor jitter (required for "watercolor" style). */
   rng?: () => number;
+  /** Light direction angle in radians — used for shadow & highlight. */
+  lightAngle?: number;
+  /** Scale factor for resolution-independent sizing. */
+  scaleFactor?: number;
 }
 
 export function drawShape(
@@ -208,6 +212,28 @@ function applyRenderStyle(
       ctx.fill();
       ctx.fillStyle = origFill;
       ctx.restore();
+
+      // Pass 4: Organic edge erosion — irregular bites along the boundary
+      if (rng && size > 20) {
+        const erosionBites = 6 + Math.floor(rng() * 8);
+        const edgeRadius = size * 0.45;
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.globalAlpha = 0.6 + rng() * 0.3;
+        for (let eb = 0; eb < erosionBites; eb++) {
+          const biteAngle = rng() * Math.PI * 2;
+          const biteDist = edgeRadius * (0.85 + rng() * 0.25);
+          const biteR = size * (0.02 + rng() * 0.04);
+          ctx.beginPath();
+          ctx.arc(
+            Math.cos(biteAngle) * biteDist,
+            Math.sin(biteAngle) * biteDist,
+            biteR, 0, Math.PI * 2,
+          );
+          ctx.fill();
+        }
+        ctx.restore();
+      }
 
       ctx.globalAlpha = savedAlpha;
       // Soft stroke on top — thinner than normal for delicacy
@@ -532,6 +558,29 @@ function applyRenderStyle(
         ctx.stroke();
         ctx.restore();
       }
+
+      // Organic edge erosion — small irregular bites for rough paper feel
+      if (rng && size > 20) {
+        const erosionBites = 4 + Math.floor(rng() * 6);
+        const edgeRadius = size * 0.42;
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.globalAlpha = 0.5 + rng() * 0.3;
+        for (let eb = 0; eb < erosionBites; eb++) {
+          const biteAngle = rng() * Math.PI * 2;
+          const biteDist = edgeRadius * (0.9 + rng() * 0.2);
+          const biteR = size * (0.015 + rng() * 0.03);
+          ctx.beginPath();
+          ctx.arc(
+            Math.cos(biteAngle) * biteDist,
+            Math.sin(biteAngle) * biteDist,
+            biteR, 0, Math.PI * 2,
+          );
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
       ctx.globalAlpha = savedAlphaHD;
       break;
     }
@@ -570,14 +619,24 @@ export function enhanceShapeGeneration(
     gradientFillEnd,
     renderStyle = "fill-and-stroke",
     rng,
+    lightAngle,
+    scaleFactor = 1,
   } = config;
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate((rotation * Math.PI) / 180);
 
-  // Glow / shadow effect
-  if (glowRadius > 0) {
+  // ── Drop shadow — soft colored shadow offset along light direction ──
+  if (lightAngle !== undefined && size > 10) {
+    const shadowDist = size * 0.035;
+    const shadowBlurR = size * 0.06;
+    ctx.shadowOffsetX = Math.cos(lightAngle + Math.PI) * shadowDist;
+    ctx.shadowOffsetY = Math.sin(lightAngle + Math.PI) * shadowDist;
+    ctx.shadowBlur = shadowBlurR;
+    ctx.shadowColor = "rgba(0,0,0,0.12)";
+  } else if (glowRadius > 0) {
+    // Glow / shadow effect (legacy path)
     ctx.shadowBlur = glowRadius;
     ctx.shadowColor = glowColor || fillColor;
     ctx.shadowOffsetX = 0;
@@ -603,9 +662,29 @@ export function enhanceShapeGeneration(
     applyRenderStyle(ctx, renderStyle, fillColor, strokeColor, strokeWidth, size, rng);
   }
 
-  // Reset shadow so patterns aren't double-glowed
-  if (glowRadius > 0) {
-    ctx.shadowBlur = 0;
+  // Reset shadow so patterns and highlight aren't double-shadowed
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.shadowColor = "transparent";
+
+  // ── Specular highlight — bright arc on the light-facing side ──
+  if (lightAngle !== undefined && size > 15 && rng) {
+    const hlRadius = size * 0.35;
+    const hlDist = size * 0.15;
+    const hlX = Math.cos(lightAngle) * hlDist;
+    const hlY = Math.sin(lightAngle) * hlDist;
+    const hlGrad = ctx.createRadialGradient(hlX, hlY, 0, hlX, hlY, hlRadius);
+    hlGrad.addColorStop(0, "rgba(255,255,255,0.18)");
+    hlGrad.addColorStop(0.5, "rgba(255,255,255,0.05)");
+    hlGrad.addColorStop(1, "rgba(255,255,255,0)");
+    const savedOp = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.fillStyle = hlGrad;
+    ctx.beginPath();
+    ctx.arc(hlX, hlY, hlRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = savedOp;
   }
 
   // Layer additional patterns if specified
