@@ -9,22 +9,27 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Color Scheme (analogic + complementary + triadic palettes)
+  ├─► Color Scheme (hash-driven variation + scheme type selection)
   │
   └─► Rendering Pipeline
        │
-       1. Background Layer
-       2. Composition Mode Selection
-       3. Focal Point Generation
-       4. Flow Field Initialization
-       5. Shape Layers (× N layers)
-       │   ├─ Position (composition mode + focal bias)
+       1.  Background Layer (radial gradient)
+       1b. Layered Background (faint shapes + concentric rings)
+       2.  Composition Mode Selection
+       3.  Focal Points + Void Zones (negative space)
+       4.  Flow Field Initialization
+       5.  Shape Layers (× N layers)
+       │   ├─ Blend Mode (per-layer compositing)
+       │   ├─ Render Style (fill+stroke, wireframe, dashed, watercolor, etc.)
+       │   ├─ Position (composition mode + focal bias + density check)
        │   ├─ Shape Selection (layer-weighted)
+       │   ├─ Atmospheric Depth (desaturation on later layers)
        │   ├─ Styling (transparency, glow, gradients, color jitter)
+       │   ├─ Organic Edges (~15% watercolor bleed)
        │   └─ Recursive Nesting (~15% of large shapes)
-       6. Flow-Line Pass
-       7. Noise Texture Overlay
-       8. Organic Connecting Curves
+       6.  Flow-Line Pass (tapered brush strokes)
+       7.  Noise Texture Overlay
+       8.  Organic Connecting Curves
 ```
 
 ## 1. Deterministic RNG
@@ -44,21 +49,46 @@ The `SacredColorScheme` class derives three harmonious palettes from the hash:
 
 | Palette | Method | Purpose |
 |---------|--------|---------|
-| Base (analogic) | `color-scheme` lib, hue = seed % 360 | Primary shape colors |
-| Complementary (mono) | hue = seed + 180° | Contrast accents |
+| Base | `color-scheme` lib, hue = seed % 360, hash-driven scheme type | Primary shape colors |
+| Complementary | hue = seed + 180°, contrasting variation | Contrast accents |
 | Triadic | hue = seed + 120° | Additional variety |
 
 These are merged and deduplicated into a single 6-8 color palette. Background colors are darkened variants (65% and 55% brightness) of the base scheme.
+
+### Hash-Driven Color Variation
+
+The hash deterministically selects both a **scheme type** and a **color variation**, producing dramatically different palettes from the same hue:
+
+| Variation | Character |
+|-----------|-----------|
+| `soft` | Muted, gentle tones |
+| `hard` | High saturation, vivid |
+| `pastel` | Light, airy |
+| `light` | Bright, open |
+| `dark` | Deep, moody |
+| `default` | Balanced, neutral |
+
+Scheme types also vary: `analogic`, `mono`, `contrast`, `triade`, `tetrade`. The complementary palette uses a contrasting variation (e.g., if base is `soft`, complementary uses `hard`) to create intentional color tension.
 
 ### Color Utilities
 
 - **`hexWithAlpha(hex, alpha)`** — converts hex to `rgba()` for transparency
 - **`jitterColor(hex, rng, amount)`** — applies ±amount RGB jitter per channel for organic variation
+- **`desaturate(hex, amount)`** — blends toward luminance gray for atmospheric depth
 - **Positional blending** — shape fill color is biased by canvas position, creating smooth color flow across the image
 
 ## 3. Background
 
 A radial gradient fills the canvas from center to corners using two darkened base-scheme colors. This creates depth before any shapes are drawn.
+
+### Layered Background
+
+After the gradient, a second pass adds visual texture to the background:
+
+- **Faint shapes** — 3-7 large, very low-opacity circles (3-8% alpha) drawn with `soft-light` blending, creating subtle color pools
+- **Concentric rings** — 2-4 rings emanating from center at ~2-5% opacity, adding structure without competing with foreground shapes
+
+This prevents the background from feeling flat and gives the image depth before the main shape layers begin.
 
 ## 4. Composition Modes
 
@@ -74,9 +104,17 @@ The hash deterministically selects one of five composition strategies that contr
 
 Each mode produces fundamentally different visual character from the same shape set.
 
-## 5. Focal Points
+## 5. Focal Points & Negative Space
 
 1-2 focal points are placed on the canvas (kept away from edges). Every shape position is pulled toward the nearest focal point by a strength factor (30-70%), creating areas of visual density and intentional-looking composition rather than uniform scatter.
+
+### Void Zones (Negative Space)
+
+1-2 void zones are generated at random positions. Shapes that land inside a void zone have an 85% chance of being skipped, creating deliberate areas of breathing room. A few shapes bleed through (15%) to keep the edges organic rather than hard-cut.
+
+### Density Awareness
+
+Before placing each shape, the renderer checks how many shapes already exist nearby. If local density exceeds ~15% of the per-layer shape count, there's a 60% chance the shape is skipped. This prevents areas from becoming an opaque blob and creates natural visual rhythm.
 
 ## 6. Shape Layers
 
@@ -90,6 +128,32 @@ The image is built in N layers (default: 4). Each layer has its own characterist
 | Size scale | Later layers use progressively smaller shapes (×0.85, ×0.70, ×0.55) |
 | Shape weights | Early layers favor basic shapes; later layers favor complex/sacred |
 | Per-shape opacity | Additional random jitter (50-100% of layer opacity) |
+| Blend mode | Each layer gets a hash-derived `globalCompositeOperation` (see below) |
+| Render style | Each layer has a dominant render style; 30% of shapes pick their own |
+| Atmospheric depth | Later layers desaturate colors by up to 30%, simulating distance |
+
+### Blend Modes (Per-Layer Compositing)
+
+Each layer deterministically selects a `globalCompositeOperation` from: `source-over`, `screen`, `multiply`, `overlay`, `soft-light`, `color-dodge`, `color-burn`, `lighter`. There's a 40% chance of `source-over` (default) to keep some images clean, while the other modes create rich color interactions where shapes overlap — the kind of depth that makes output feel painterly rather than stacked.
+
+### Render Styles (Per-Shape Treatment)
+
+Instead of always `fill()` + `stroke()`, each shape gets a rendering treatment:
+
+| Style | Description | Probability |
+|-------|-------------|-------------|
+| `fill-and-stroke` | Classic solid fill with outline | ~29% (weighted) |
+| `fill-only` | Soft shapes with no outline | ~14% |
+| `stroke-only` | Wireframe with ghost fill at 30% alpha | ~14% |
+| `double-stroke` | Outer stroke at 2× width + inner stroke in fill color | ~14% |
+| `dashed` | Dashed outline (5% size dash, 3% gap) | ~14% |
+| `watercolor` | 3-4 slightly offset passes at low opacity for bleed effect | ~14% |
+
+70% of shapes in a layer use the layer's dominant style; 30% pick independently. Additionally, ~15% of `fill-and-stroke` shapes are upgraded to `watercolor` for organic edge effects.
+
+### Atmospheric Depth (Per-Layer Desaturation)
+
+Later layers progressively desaturate their colors (0% on layer 0, up to 30% on the final layer). This simulates atmospheric perspective — distant shapes appear more muted, creating a sense of foreground/background depth.
 
 ### Shape Selection (Layer-Weighted)
 
@@ -124,14 +188,16 @@ Each shape receives:
 - Sized at 15-40% of the parent
 - More transparent than the parent layer
 
-## 7. Flow-Line Pass
+## 7. Flow-Line Pass (Tapered Brush Strokes)
 
 6-16 flowing curves are drawn across the canvas, following the hash-derived vector field:
 
 - Each line starts at a random position and takes 30-70 steps
 - At each step, direction is determined by the flow field angle at that position plus slight random wobble
 - Lines stop if they leave the canvas bounds
-- Drawn at very low opacity (6-16%) with thin strokes for subtle movement
+- **Tapered width** — each line starts at 1-4px and tapers to 20% of its starting width by the end, simulating a brush stroke that lifts off the canvas
+- **Tapered opacity** — alpha also decays along the stroke, creating natural fade-out
+- Individual segments are drawn with `lineCap: "round"` for smooth joins
 
 The flow field is defined by:
 ```

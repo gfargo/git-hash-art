@@ -1,69 +1,88 @@
 import ColorScheme from "color-scheme";
 import "../../../global.d";
 
-import { gitHashToSeed } from "../utils";
+import { gitHashToSeed, createRng, seedFromHash } from "../utils";
+
+// ── Color variation modes ───────────────────────────────────────────
+// The hash deterministically selects a variation, producing dramatically
+// different palettes from the same hue.
+
+const COLOR_VARIATIONS = [
+  "soft",
+  "hard",
+  "pastel",
+  "light",
+  "dark",
+  "default",
+] as const;
+type ColorVariation = (typeof COLOR_VARIATIONS)[number];
 
 /**
- * Generates a color scheme based on a given Git hash.
+ * Pick a color variation mode deterministically from a seed.
  */
-export function generateColorScheme(gitHash: string): string[] {
-  const seed = gitHashToSeed(gitHash);
-  const scheme = new ColorScheme();
-  scheme
-    .from_hue(seed % 360)
-    .scheme("analogic")
-    .variation("soft");
-
-  let colors = scheme.colors().map((hex: string) => `#${hex}`);
-
-  const contrastingHue = (seed + 180) % 360;
-  const contrastingScheme = new ColorScheme();
-  contrastingScheme.from_hue(contrastingHue).scheme("mono").variation("soft");
-  colors.push(`#${contrastingScheme.colors()[0]}`);
-
-  return colors;
+function pickVariation(seed: number): ColorVariation {
+  return COLOR_VARIATIONS[Math.abs(seed) % COLOR_VARIATIONS.length];
 }
 
-interface MetallicColors {
-  gold: string;
-  silver: string;
-  copper: string;
-  bronze: string;
+/**
+ * Scheme type also varies — some hashes get near-monochromatic palettes,
+ * others get high-contrast complementary schemes.
+ */
+const SCHEME_TYPES = [
+  "analogic",
+  "mono",
+  "contrast",
+  "triade",
+  "tetrade",
+] as const;
+type SchemeType = (typeof SCHEME_TYPES)[number];
+
+function pickSchemeType(seed: number): SchemeType {
+  return SCHEME_TYPES[Math.abs(seed >> 4) % SCHEME_TYPES.length];
 }
+
 
 // Enhanced color scheme generation for sacred geometry
 export class SacredColorScheme {
   private seed: number;
+  private rng: () => number;
+  private variation: ColorVariation;
+  private schemeType: SchemeType;
   public baseScheme: string[];
   private complementaryScheme: string[];
   private triadicScheme: string[];
-  private metallic: MetallicColors;
 
   constructor(gitHash: string) {
     this.seed = gitHashToSeed(gitHash);
+    this.rng = createRng(seedFromHash(gitHash, 42));
+    // Hash-driven variation and scheme type for palette diversity
+    this.variation = pickVariation(this.seed);
+    this.schemeType = pickSchemeType(this.seed);
     this.baseScheme = this.generateBaseScheme();
     this.complementaryScheme = this.generateComplementaryScheme();
     this.triadicScheme = this.generateTriadicScheme();
-    this.metallic = this.generateMetallicColors();
   }
 
   private generateBaseScheme(): string[] {
     const scheme = new ColorScheme();
     return scheme
       .from_hue(this.seed % 360)
-      .scheme("analogic")
-      .variation("soft")
+      .scheme(this.schemeType)
+      .variation(this.variation)
       .colors()
       .map((hex: string) => `#${hex}`);
   }
 
   private generateComplementaryScheme(): string[] {
     const complementaryHue = (this.seed + 180) % 360;
+    // Complementary uses a contrasting variation for tension
+    const compVariation =
+      this.variation === "soft" ? "hard" : this.variation === "dark" ? "light" : this.variation;
     const scheme = new ColorScheme();
     return scheme
       .from_hue(complementaryHue)
       .scheme("mono")
-      .variation("soft")
+      .variation(compVariation)
       .colors()
       .map((hex: string) => `#${hex}`);
   }
@@ -74,18 +93,9 @@ export class SacredColorScheme {
     return scheme
       .from_hue(triadicHue)
       .scheme("triade")
-      .variation("soft")
+      .variation(this.variation)
       .colors()
       .map((hex: string) => `#${hex}`);
-  }
-
-  private generateMetallicColors(): MetallicColors {
-    return {
-      gold: "#FFD700",
-      silver: "#C0C0C0",
-      copper: "#B87333",
-      bronze: "#CD7F32",
-    };
   }
 
   /**
@@ -165,4 +175,15 @@ export function jitterColor(
   const [r, g, b] = hexToRgb(hex);
   const jit = () => (rng() - 0.5) * 2 * amount * 255;
   return rgbToHex(r + jit(), g + jit(), b + jit());
+}
+
+/**
+ * Desaturate a hex color by blending toward its luminance gray.
+ * `amount` 0 = unchanged, 1 = fully gray.
+ */
+export function desaturate(hex: string, amount: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+  const mix = (c: number) => c + (gray - c) * amount;
+  return rgbToHex(mix(r), mix(g), mix(b));
 }
