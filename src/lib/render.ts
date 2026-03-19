@@ -285,14 +285,32 @@ export function renderHashArt(
     COMPOSITION_MODES[Math.floor(rng() * COMPOSITION_MODES.length)];
 
   // ── 3. Focal points + void zones ───────────────────────────────
+  // Rule-of-thirds intersection points for intentional composition
+  const THIRDS_POINTS = [
+    { x: 1 / 3, y: 1 / 3 },
+    { x: 2 / 3, y: 1 / 3 },
+    { x: 1 / 3, y: 2 / 3 },
+    { x: 2 / 3, y: 2 / 3 },
+  ];
   const numFocal = 1 + Math.floor(rng() * 2);
   const focalPoints: Array<{ x: number; y: number; strength: number }> = [];
   for (let f = 0; f < numFocal; f++) {
-    focalPoints.push({
-      x: width * (0.2 + rng() * 0.6),
-      y: height * (0.2 + rng() * 0.6),
-      strength: 0.3 + rng() * 0.4,
-    });
+    // 70% chance to snap to a rule-of-thirds point, 30% free placement
+    if (rng() < 0.7) {
+      const tp = THIRDS_POINTS[Math.floor(rng() * THIRDS_POINTS.length)];
+      // Small jitter around the thirds point so it's not robotic
+      focalPoints.push({
+        x: width * (tp.x + (rng() - 0.5) * 0.08),
+        y: height * (tp.y + (rng() - 0.5) * 0.08),
+        strength: 0.3 + rng() * 0.4,
+      });
+    } else {
+      focalPoints.push({
+        x: width * (0.2 + rng() * 0.6),
+        y: height * (0.2 + rng() * 0.6),
+        strength: 0.3 + rng() * 0.4,
+      });
+    }
   }
 
   // Feature E: 1-2 void zones where shapes are sparse (negative space)
@@ -332,8 +350,47 @@ export function renderHashArt(
     );
   }
 
-  // ── 5. Shape layers ────────────────────────────────────────────
+  // Track all placed shapes for density checks and connecting curves
   const shapePositions: Array<{ x: number; y: number; size: number }> = [];
+
+  // ── 4b. Hero shape — a dominant focal element ───────────────────
+  // ~60% of images get a hero shape anchored at the primary focal point.
+  // It's a large sacred/complex shape that gives the composition a center of gravity.
+  if (rng() < 0.6) {
+    const heroFocal = focalPoints[0];
+    const heroPool = [...SACRED_SHAPES, "fibonacciSpiral", "merkaba", "fractal"];
+    const heroShape =
+      heroPool.filter((s) => shapeNames.includes(s))[
+        Math.floor(rng() * heroPool.filter((s) => shapeNames.includes(s)).length)
+      ] || shapeNames[Math.floor(rng() * shapeNames.length)];
+
+    const heroSize = adjustedMaxSize * (0.8 + rng() * 0.5);
+    const heroRotation = rng() * 360;
+    const heroFill = hexWithAlpha(
+      jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05),
+      0.15 + rng() * 0.2,
+    );
+    const heroStroke = jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05);
+
+    ctx.globalAlpha = 0.5 + rng() * 0.2;
+    enhanceShapeGeneration(ctx, heroShape, heroFocal.x, heroFocal.y, {
+      fillColor: heroFill,
+      strokeColor: heroStroke,
+      strokeWidth: (1.5 + rng() * 2) * scaleFactor,
+      size: heroSize,
+      rotation: heroRotation,
+      proportionType: "GOLDEN_RATIO",
+      glowRadius: (12 + rng() * 20) * scaleFactor,
+      glowColor: hexWithAlpha(heroStroke, 0.4),
+      gradientFillEnd: jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.1),
+      renderStyle: rng() < 0.4 ? "watercolor" : "fill-and-stroke",
+      rng,
+    });
+
+    shapePositions.push({ x: heroFocal.x, y: heroFocal.y, size: heroSize });
+  }
+
+  // ── 5. Shape layers ────────────────────────────────────────────
   const densityCheckRadius = Math.min(width, height) * 0.08;
   const maxLocalDensity = Math.ceil(finalConfig.shapesPerLayer * 0.15);
 
