@@ -304,7 +304,7 @@ export function enhanceShapeGeneration(
 
   const drawFunction = shapes[shape];
   if (drawFunction) {
-    drawFunction(ctx, size);
+    drawFunction(ctx, size, { rng });
     applyRenderStyle(ctx, renderStyle, fillColor, strokeColor, strokeWidth, size, rng);
   }
 
