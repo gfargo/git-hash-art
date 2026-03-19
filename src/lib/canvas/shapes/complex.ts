@@ -55,7 +55,8 @@ export const drawPlatonicSolid: DrawFunction = (ctx, size, config = {}) => {
   applyTransforms(ctx, size, finalConfig);
 
   const solidType = config.type as keyof typeof ShapeConfigs.platonic;
-  const solidConfig = ShapeConfigs.platonic[solidType] ?? ShapeConfigs.platonic.icosahedron;
+  const solidConfig =
+    ShapeConfigs.platonic[solidType] ?? ShapeConfigs.platonic.icosahedron;
   const {
     vertices,
     // faces
