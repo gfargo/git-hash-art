@@ -21,7 +21,7 @@ export const drawTriangle: DrawFunction = (ctx, size) => {
 export const drawHexagon: DrawFunction = (ctx, size) => {
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
-    const angle = (Math.PI / 8) * i;
+    const angle = ((Math.PI * 2) / 6) * i;
     const x = (size / 2) * Math.cos(angle);
     const y = (size / 2) * Math.sin(angle);
     if (i === 0) ctx.moveTo(x, y);

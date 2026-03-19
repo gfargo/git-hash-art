@@ -1,32 +1,28 @@
 import { createCanvas } from "@napi-rs/canvas";
-import fs from "fs";
-import path from "path";
 import { SacredColorScheme } from "./lib/canvas/colors";
 import { enhanceShapeGeneration } from "./lib/canvas/draw";
 import { shapes } from "./lib/canvas/shapes";
-import { getRandomFromHash } from "./lib/utils";
+import { createRng, seedFromHash } from "./lib/utils";
 
 /**
  * Generate an abstract art image from a git hash with custom configuration
  * @param {string} gitHash - The git hash to use as a seed
- * @param {ArtConfig} [config={}] - Configuration options
+ * @param {object} [config={}] - Configuration options
  * @returns {Buffer} PNG buffer of the generated image
  */
 function generateImageFromHash(gitHash: string, config = {}) {
-  // Default configuration
   const defaultConfig = {
     width: 2048,
     height: 2048,
-    gridSize: 12,
-    layers: 2,
-    minShapeSize: 20,
-    maxShapeSize: 600,
-    baseOpacity: 0.8,
-    opacityReduction: 0.4,
+    gridSize: 5,
+    layers: 4,
+    minShapeSize: 30,
+    maxShapeSize: 400,
+    baseOpacity: 0.7,
+    opacityReduction: 0.12,
     shapesPerLayer: 0,
   };
 
-  // Merge provided config with defaults
   const finalConfig = { ...defaultConfig, ...config };
   const {
     width,
@@ -39,149 +35,123 @@ function generateImageFromHash(gitHash: string, config = {}) {
     opacityReduction,
   } = finalConfig;
 
-  // Calculate shapes per layer based on grid size if not provided
   finalConfig.shapesPerLayer =
     finalConfig.shapesPerLayer || Math.floor(gridSize * gridSize * 1.5);
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
 
+  // --- Color scheme derived from hash ---
   const colorScheme = new SacredColorScheme(gitHash);
-  const colors = colorScheme.getColorPalette("chakra");
+  const colors = colorScheme.getColors();
+  const [bgStart, bgEnd] = colorScheme.getBackgroundColors();
 
-  // Create a gradient background
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, colorScheme.baseScheme[0]);
-  gradient.addColorStop(1, colorScheme.baseScheme[1]);
+  // --- Radial gradient background for depth ---
+  const cx = width / 2;
+  const cy = height / 2;
+  const bgRadius = Math.hypot(cx, cy);
+  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgRadius);
+  gradient.addColorStop(0, bgStart);
+  gradient.addColorStop(1, bgEnd);
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
   const shapeNames = Object.keys(shapes);
-
-  const cellWidth = width / gridSize;
-  const cellHeight = height / gridSize;
-
-  // Scale shape sizes based on canvas dimensions
   const scaleFactor = Math.min(width, height) / 1024;
   const adjustedMinSize = minShapeSize * scaleFactor;
   const adjustedMaxSize = maxShapeSize * scaleFactor;
 
+  // One master RNG seeded from the full hash — all randomness flows from here
+  const rng = createRng(seedFromHash(gitHash));
+
+  // Track shape positions for organic connecting curves later
+  const shapePositions: Array<{ x: number; y: number }> = [];
+
   for (let layer = 0; layer < layers; layer++) {
     const numShapes =
       finalConfig.shapesPerLayer +
-      Math.floor(
-        getRandomFromHash(gitHash, layer, 0, finalConfig.shapesPerLayer / 2),
-      );
-    const layerOpacity = baseOpacity - layer * opacityReduction;
+      Math.floor(rng() * finalConfig.shapesPerLayer * 0.3);
+
+    // Layer opacity decays gently so all layers remain visible
+    const layerOpacity = Math.max(0.15, baseOpacity - layer * opacityReduction);
+
+    // Later layers use smaller shapes for depth
+    const layerSizeScale = 1 - layer * 0.15;
 
     for (let i = 0; i < numShapes; i++) {
-      const gridX = Math.floor(i / gridSize);
-      const gridY = i % gridSize;
+      // True random placement across the full canvas
+      const x = rng() * width;
+      const y = rng() * height;
 
-      const cellOffsetX = getRandomFromHash(
-        gitHash,
-        layer * numShapes + i * 2,
-        0,
-        cellWidth,
-      );
-      const cellOffsetY = getRandomFromHash(
-        gitHash,
-        layer * numShapes + i * 2 + 1,
-        0,
-        cellHeight,
-      );
+      const shapeIdx = Math.floor(rng() * shapeNames.length);
+      const shape = shapeNames[shapeIdx];
 
-      const x = gridX * cellWidth + cellOffsetX;
-      const y = gridY * cellHeight + cellOffsetY;
-
-      const shape =
-        shapeNames[
-          Math.floor(
-            getRandomFromHash(
-              gitHash,
-              layer * numShapes + i * 3,
-              0,
-              shapeNames.length,
-            ),
-          )
-        ];
+      // Shape size follows a power distribution — many small, few large
+      const sizeT = Math.pow(rng(), 1.8);
       const size =
-        adjustedMinSize +
-        getRandomFromHash(
-          gitHash,
-          layer * numShapes + i * 4,
-          0,
-          adjustedMaxSize - adjustedMinSize,
-        );
-      const rotation = getRandomFromHash(
-        gitHash,
-        layer * numShapes + i * 5,
-        0,
-        360,
-      );
+        (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
+        layerSizeScale;
 
-      const fillColorIndex = Math.floor(
-        getRandomFromHash(
-          gitHash,
-          layer * numShapes + i * 6,
-          0,
-          Object.keys(colors).length,
-        ),
-      );
-      const strokeColorIndex = Math.floor(
-        getRandomFromHash(
-          gitHash,
-          layer * numShapes + i * 7,
-          0,
-          Object.keys(colors).length,
-        ),
-      );
+      const rotation = rng() * 360;
 
-      ctx.globalAlpha = layerOpacity;
-      // drawShape(
-      //   ctx,
-      //   shape,
-      //   x,
-      //   y,
-      //   colors[fillColorIndex],
-      //   colors[strokeColorIndex],
-      //   2 * scaleFactor,
-      //   size,
-      //   rotation
-      // );
+      const fillColor = colors[Math.floor(rng() * colors.length)];
+      const strokeColor = colors[Math.floor(rng() * colors.length)];
+
+      // Vary stroke width by shape size for visual interest
+      const strokeWidth = (0.5 + rng() * 2.0) * scaleFactor;
+
+      ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5);
 
       enhanceShapeGeneration(ctx, shape, x, y, {
-        fillColor: Object.values(colors)[fillColorIndex],
-        strokeColor: Object.values(colors)[strokeColorIndex],
-        strokeWidth: 1.5 * scaleFactor,
+        fillColor,
+        strokeColor,
+        strokeWidth,
         size,
         rotation,
-        // Optionally add pattern combinations
-        // patterns:
-        //   Math.random() > 0.7 ? PatternPresets.cosmicTree(size) : [],
         proportionType: "GOLDEN_RATIO",
       });
+
+      shapePositions.push({ x, y });
     }
+  }
 
-    // Add connecting lines scaled to canvas size
-    ctx.globalAlpha = 0.2;
-    ctx.strokeStyle = Object.values(colors)[Object.keys(colors).length - 1];
-    ctx.lineWidth = 1 * scaleFactor;
+  // --- Organic connecting curves between nearby shapes ---
+  if (shapePositions.length > 1) {
+    const numCurves = Math.floor((8 * (width * height)) / (1024 * 1024));
+    ctx.lineWidth = 0.8 * scaleFactor;
 
-    const numLines = Math.floor((15 * (width * height)) / (1024 * 1024));
-    for (let i = 0; i < numLines; i++) {
-      const x1 = getRandomFromHash(gitHash, i * 4, 0, width);
-      const y1 = getRandomFromHash(gitHash, i * 4 + 1, 0, height);
-      const x2 = getRandomFromHash(gitHash, i * 4 + 2, 0, width);
-      const y2 = getRandomFromHash(gitHash, i * 4 + 3, 0, height);
+    for (let i = 0; i < numCurves; i++) {
+      const idxA = Math.floor(rng() * shapePositions.length);
+      // Pick a nearby shape (within the next few indices for locality)
+      const offset =
+        1 + Math.floor(rng() * Math.min(5, shapePositions.length - 1));
+      const idxB = (idxA + offset) % shapePositions.length;
+
+      const a = shapePositions[idxA];
+      const b = shapePositions[idxB];
+
+      // Bezier control points offset perpendicular to the line
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const bulge = (rng() - 0.5) * dist * 0.4;
+
+      const cpx = mx + (-dy / (dist || 1)) * bulge;
+      const cpy = my + (dx / (dist || 1)) * bulge;
+
+      ctx.globalAlpha = 0.08 + rng() * 0.12;
+      ctx.strokeStyle = colors[Math.floor(rng() * colors.length)];
 
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
       ctx.stroke();
     }
   }
 
+  ctx.globalAlpha = 1;
   return canvas.toBuffer("image/png");
 }
 
@@ -219,13 +189,3 @@ function saveImageToFile(
 }
 
 export { generateImageFromHash, saveImageToFile };
-
-// Usage example:
-/*
-import { generateImageFromHash, saveImageToFile } from 'git-hash-art';
-
-const gitHash = '1234567890abcdef1234567890abcdef12345678';
-const imageBuffer = generateImageFromHash(gitHash, { width: 1024, height: 1024 });
-const savedImagePath = saveImageToFile(imageBuffer, './output', gitHash, 'example', 1024, 1024);
-console.log(`Image saved to: ${savedImagePath}`);
-*/
