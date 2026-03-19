@@ -533,5 +533,6 @@ export function evolveHierarchy(
     dominant: hueRotate(base.dominant, shift),
     secondary: hueRotate(base.secondary, shift * 0.7),
     accent: hueRotate(base.accent, shift * 0.5),
+    all: base.all.map(c => hueRotate(c, shift * 0.6)),
   };
 }
