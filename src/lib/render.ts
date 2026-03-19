@@ -289,6 +289,14 @@ export function renderHashArt(
   const compositionMode =
     COMPOSITION_MODES[Math.floor(rng() * COMPOSITION_MODES.length)];
 
+  // ── 2b. Symmetry mode — ~25% of hashes trigger mirroring ──────
+  type SymmetryMode = "none" | "bilateral-x" | "bilateral-y" | "quad";
+  const symRoll = rng();
+  const symmetryMode: SymmetryMode =
+    symRoll < 0.10 ? "bilateral-x" :
+    symRoll < 0.20 ? "bilateral-y" :
+    symRoll < 0.25 ? "quad" : "none";
+
   // ── 3. Focal points + void zones ───────────────────────────────
   // Rule-of-thirds intersection points for intentional composition
   const THIRDS_POINTS = [
@@ -599,6 +607,32 @@ export function renderHashArt(
       prevX = fx;
       prevY = fy;
     }
+  }
+
+  // ── 6b. Apply symmetry mirroring ─────────────────────────────────
+  // Mirror the rendered content (shapes + flow lines) before post-processing.
+  // Uses ctx.canvas which is available in both Node (@napi-rs/canvas) and browsers.
+  if (symmetryMode !== "none") {
+    const canvas = ctx.canvas;
+    ctx.save();
+    if (symmetryMode === "bilateral-x" || symmetryMode === "quad") {
+      // Mirror left half onto right half
+      ctx.save();
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      // Draw the left half (0 to cx) onto the mirrored right side
+      ctx.drawImage(canvas, 0, 0, Math.ceil(cx), height, 0, 0, Math.ceil(cx), height);
+      ctx.restore();
+    }
+    if (symmetryMode === "bilateral-y" || symmetryMode === "quad") {
+      // Mirror top half onto bottom half
+      ctx.save();
+      ctx.translate(0, height);
+      ctx.scale(1, -1);
+      ctx.drawImage(canvas, 0, 0, width, Math.ceil(cy), 0, 0, width, Math.ceil(cy));
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   // ── 7. Noise texture overlay ───────────────────────────────────
