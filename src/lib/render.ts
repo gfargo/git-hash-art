@@ -22,6 +22,7 @@ import {
     hexWithAlpha,
     jitterColor,
     desaturate,
+    shiftTemperature,
 } from "./canvas/colors";
 import {
     enhanceShapeGeneration,
@@ -234,6 +235,10 @@ export function renderHashArt(
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColors();
   const [bgStart, bgEnd] = colorScheme.getBackgroundColors();
+  const tempMode = colorScheme.getTemperatureMode();
+  // Foreground shapes get the opposite temperature for contrast
+  const fgTempTarget: "warm" | "cool" | null =
+    tempMode === "warm-bg" ? "cool" : tempMode === "cool-bg" ? "warm" : null;
 
   const shapeNames = Object.keys(shapes);
   const scaleFactor = Math.min(width, height) / 1024;
@@ -457,6 +462,11 @@ export function renderHashArt(
       // Feature D: desaturate colors on later layers for depth
       if (atmosphericDesat > 0) {
         fillBase = desaturate(fillBase, atmosphericDesat);
+      }
+
+      // Temperature contrast: shift foreground shapes opposite to background
+      if (fgTempTarget) {
+        fillBase = shiftTemperature(fillBase, fgTempTarget, 0.15 + layerRatio * 0.1);
       }
 
       const fillColor = jitterColor(fillBase, rng, 0.06);
