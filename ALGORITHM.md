@@ -31,11 +31,12 @@ Hash String
        1a. Background Luminance → contrast enforcement threshold
        1b. Layered Background (archetype-coherent shapes + concentric rings)
        1c. Background Pattern Layer (dot grid / diagonal lines / tessellation)
-       2.  Composition Mode Selection
+       2.  Composition Mode Selection (6 modes including golden-spiral)
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
-       4.  Flow Field Initialization
+       4.  Flow Field Initialization (simplex noise FBM)
+       4a. Noise Size Modulation (terrain-like size variation from noise field)
        4b. Hero Shape (palette-aware, affinity-styled)
        5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
@@ -50,16 +51,18 @@ Hash String
        │   ├─ Atmospheric Depth (desaturation on later layers)
        │   ├─ Temperature Contrast (foreground opposite to background)
        │   ├─ Styling (transparency, glow, gradients, HSL jitter)
+       │   ├─ Shadow & Highlight (drop shadow + specular highlight per shape)
        │   ├─ Organic Edges (~15% watercolor bleed)
+       │   ├─ Edge Erosion (watercolor + hand-drawn styles get irregular boundary bites)
        │   ├─ 5a. Tangent Placement (~25% nudge toward nearest shape edge)
        │   ├─ 5b. Shape Mirroring (~40% of basic shapes get reflected copies)
        │   ├─ 5c. Size Echo (~20% of large shapes spawn trailing copies)
        │   ├─ 5d. Recursive Nesting (~15% of large shapes, palette-aware)
        │   └─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
+       5f. Layered Masking / Cutout Portals (~18% of images)
        6.  Flow-Line Pass (variable color, pressure, branching)
        6b. Motion/Energy Lines (directional bursts from shapes)
        6c. Layered Transparency / Glazing (~20% of shapes get multi-pass redraws)
-       7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        8.  Noise Texture Overlay
        9.  Vignette (radial edge darkening)
@@ -67,7 +70,9 @@ Hash String
        11. Post-Processing
            ├─ Color Grading (unified tone overlay)
            ├─ Chromatic Aberration (neon/cosmic/ethereal only)
-           └─ Bloom (neon/cosmic only)
+           ├─ Bloom (neon/cosmic only)
+           └─ Gradient Map (~35% chance, luminance-mapped two-color overlay)
+       11b. Generative Borders (archetype-driven decorative frames)
        12. Signature Mark (deterministic geometric chop mark)
 ```
 
@@ -81,6 +86,16 @@ rng() → float in [0, 1)
 ```
 
 The old approach extracted 2-char hex pairs from the hash (only ~20 unique values in a 40-char hash). Mulberry32 produces a full 32-bit uniform stream from any seed, eliminating correlation artifacts.
+
+### Simplex Noise Field
+
+In addition to the scalar RNG, the pipeline creates a **2D simplex noise** function seeded from the hash (with a separate salt so it's independent of the main RNG stream). This produces smooth, organic spatial variation across the canvas.
+
+The raw simplex noise is layered into **Fractal Brownian Motion (FBM)** with 3 octaves (lacunarity 2.0, gain 0.5), which adds multi-scale detail — large sweeping gradients overlaid with finer turbulence.
+
+The noise field drives two systems:
+- **Flow field angles:** `flowAngle(x, y)` samples the FBM at each position, producing organic, non-repeating directional fields. This replaces the old sinusoidal field which produced visible periodic patterns.
+- **Size modulation:** `noiseSizeModulation(x, y)` samples the raw simplex noise to create terrain-like size variation (0.7×–1.3×). Shapes in "high noise" regions are larger; shapes in "low noise" regions are smaller. This creates natural density clusters without explicit clustering logic.
 
 ## 2. Archetype System
 
@@ -161,6 +176,17 @@ Color generation uses the `color-scheme` library seeded from the hash, then appl
 | pastel-light | Soft pastels on light backgrounds |
 | earth | Muted warm naturals |
 | high-contrast | Black + white + one accent color |
+| split-complementary | Base hue + two colors flanking the complement (±30°) |
+| analogous-accent | Tight cluster of 3 analogous hues + 1 distant accent |
+| limited-palette | Only 3 colors — risograph-print feel |
+
+### New Harmony Mode Details
+
+**split-complementary** — Instead of a single complement (180° opposite), this mode uses two colors at ±30° from the complement. This creates strong contrast like complementary schemes but with more nuance and less visual tension. The base hue gets a tint variant for 5 total colors.
+
+**analogous-accent** — Three hues within a tight 30–70° arc (15–35° step between each) create a harmonious, low-contrast base. A single accent color at 150–210° away provides a pop of contrast. This produces compositions that feel cohesive with one surprising element.
+
+**limited-palette** — Only 3 colors total, spaced roughly 120° apart with slight randomization. Mimics the look of risograph or screen-printed art where ink colors are limited. The constraint forces the hierarchy system to work harder, producing bold, graphic compositions.
 
 ### Color Hierarchy
 
@@ -311,6 +337,13 @@ Each image uses one of 5 composition strategies for shape placement:
 | grid-subdivision | Canvas divided into 3–5 cells; shapes placed within random cells |
 | clustered | 3–5 cluster centers; shapes scatter around the nearest cluster |
 | flow-field | Uniform random placement (rotation driven by flow field) |
+| golden-spiral | Shapes placed along a logarithmic golden-angle spiral from center outward |
+
+### Golden Spiral Detail
+
+The `golden-spiral` mode uses the **golden angle** (~137.5°) to space shapes around the center. Each shape's angular position is `index × goldenAngle` with slight random jitter (±0.3 radians). The radial distance uses a square-root distribution (`√(t) × maxRadius`) which ensures even area coverage — shapes don't bunch up at the center or leave gaps at the edges.
+
+This produces the same phyllotactic pattern seen in sunflower seed heads and pinecone spirals. Combined with the size power curve, it creates compositions where large shapes anchor the center and smaller shapes spiral outward in a naturally pleasing arrangement.
 
 ### Symmetry
 
@@ -386,7 +419,27 @@ For each shape in a layer:
 9. **Contrast enforcement:** Fill and stroke colors checked against background luminance
 10. **Styling:** Affinity-aware render style, optional glow (sacred shapes 45% base chance × archetype multiplier), optional radial gradient fill (30% chance)
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
-12. **Light direction:** Non-glowing shapes get a subtle shadow offset along the consistent light angle
+12. **Shadow & highlight:** Each shape receives a directional drop shadow and specular highlight based on the consistent light angle (see below)
+
+### Shadow & Highlight System
+
+Every shape receives lighting effects based on a single consistent light direction (random angle, fixed for the entire image):
+
+**Drop Shadow:**
+- Offset: 3.5% of shape size along the opposite of the light direction
+- Blur radius: 6% of shape size
+- Color: `rgba(0,0,0,0.12)` — subtle enough to add depth without muddying colors
+- Applied via Canvas `shadowOffset` + `shadowBlur` properties before the shape is drawn
+- Shapes with glow effects use the glow instead (no double-shadow)
+
+**Specular Highlight:**
+- Position: 15% of shape size along the light direction from center
+- Radius: 35% of shape size
+- Gradient: white at 18% opacity → 5% → 0% (radial falloff)
+- Composited via `soft-light` to interact naturally with the shape's fill color
+- Only applied to shapes larger than 15px (tiny shapes don't benefit)
+
+The combination creates a subtle 3D effect where shapes appear to float above the background, with consistent lighting across the entire composition.
 
 ### 5a. Tangent Placement
 
@@ -426,6 +479,20 @@ The mirror copy is drawn at 70% opacity and 95% size (decreasing for radial-4), 
 | crescent-pair | Two crescents facing each other |
 
 Each member shape uses hierarchy colors with HSL jitter and affinity-aware render styles. Members that fall outside the canvas bounds are skipped.
+
+### 5f. Layered Masking / Cutout Portals
+
+~18% of images receive 1–3 **portal cutouts** — shape-sized windows that paint over the foreground layers with a background wash, creating a "peek through" depth effect.
+
+The process for each portal:
+
+1. **Position:** Biased toward an existing placed shape (with slight random offset), so portals appear in visually active areas rather than empty space
+2. **Shape:** Selected from the shape palette at the portal's size fraction, so the cutout shape is palette-coherent
+3. **Clip and fill:** The shape is used as a clip region, then a radial gradient (derived from the background colors with HSL jitter) is painted over the foreground at 60–95% opacity. This "erases" the foreground shapes within the portal boundary and replaces them with a soft background wash
+4. **Inner texture (~50%):** Tiny scattered dots inside the portal at low opacity add subtle depth to the wash
+5. **Border ring:** A subtle stroke outline at 106% of the portal size (15–35% opacity) frames the window, drawn outside the clip so it sits on top of everything
+
+The variable opacity (60–95%) means some portals are translucent peeks while others fully reveal the background, creating varied depth effects without punching actual transparent holes in the canvas.
 
 ## 10. Render Styles
 
@@ -499,15 +566,23 @@ Motion lines are drawn after the main shape layers but before symmetry mirroring
 
 ### Watercolor Detail
 
-The watercolor style simulates wet media through 4 passes:
+The watercolor style simulates wet media through 5 passes:
 1. **Base wash:** Shape drawn at 108% scale, 15% opacity — soft bleed beyond the boundary
 2. **Offset washes:** 4–5 passes with radial displacement (random angle, up to 5% of size) — organic edge irregularity
 3. **Edge darkening:** Shape drawn at 85–93% scale with lightened fill — simulates pigment pooling at boundaries where the inner area dries lighter
-4. **Delicate stroke:** Thin outline (60% of normal width) at 25% opacity
+4. **Edge erosion:** 6–14 small circular bites erased along the shape boundary using `destination-out` compositing at 60–90% opacity. Bites are placed at 85–110% of the shape's edge radius with sizes 2–6% of the shape, creating the irregular, feathered edges characteristic of real watercolor on textured paper
+5. **Delicate stroke:** Thin outline (60% of normal width) at 25% opacity
+
+### Hand-Drawn Edge Erosion
+
+The `hand-drawn` style also receives organic edge erosion after its wobbly stroke passes:
+- 4–10 small circular bites erased along the boundary at 90–110% of the edge radius
+- Bite sizes are slightly smaller than watercolor (1.5–4.5% of shape size) for a rougher, torn-paper feel
+- Combined with the wobbly multi-pass strokes, this creates shapes that look like they were drawn on rough paper with a slightly dry pen
 
 ## 11. Flow Lines
 
-Flow lines follow a sinusoidal vector field defined by `flowAngle(x, y)`. The archetype's `flowLineMultiplier` controls count (0× = none, up to 4× = heavy).
+Flow lines follow a **simplex noise** vector field defined by `flowAngle(x, y)`. The field is generated from a seeded 2D simplex noise function layered with 3-octave Fractal Brownian Motion (FBM) for organic, non-repeating patterns. The archetype's `flowLineMultiplier` controls count (0× = none, up to 4× = heavy).
 
 Each flow line:
 - Starts at a random position
@@ -544,6 +619,31 @@ Only for `neon-glow`, `cosmic`, and `ethereal` archetypes. The canvas is drawn o
 ### Bloom
 
 Only for `neon-glow` and `cosmic` archetypes. The canvas is redrawn with `shadowBlur` at 30px (scaled) and white shadow color, composited via `screen` at 8% opacity. This creates a soft glow around bright areas.
+
+### Gradient Map
+
+~35% of images receive a **gradient map** post-processing pass — a technique borrowed from Photoshop that maps the image's luminance through a two-color gradient:
+
+- **Dark color:** The hierarchy's dominant color
+- **Light color:** The hierarchy's accent color
+- **Application:** A linear gradient (top = dark, bottom = light) is painted over the entire canvas using `color` compositing mode at 6–12% opacity
+- **Effect:** Shadows take on the dominant color's hue while highlights shift toward the accent, creating a cohesive tonal relationship across the entire image
+
+The `color` blend mode only affects hue and saturation (not luminance), so the gradient map tints the image without changing its brightness structure. At 6–12% opacity, the effect is subtle — it unifies the color temperature without overpowering the original palette.
+
+### Generative Borders
+
+After all post-processing, archetype-appropriate decorative borders are drawn to frame the composition. The border style is keyed on the archetype name, with a separate RNG (seeded with salt 314) for deterministic border patterns:
+
+| Archetype Group | Border Style |
+| --------------- | ------------ |
+| geometric, op-art, shattered-glass | Clean ruled double lines with corner ornaments (small squares with diagonal crosses) |
+| botanical, organic-flow, watercolor-wash | Organic vine tendrils curling inward from edges, with small leaf dots at tendril ends |
+| celestial, cosmic, neon-glow | Subtle arcs along top/bottom edges + scattered 4-point stars in the border region |
+| minimal, monochrome-ink, stipple-portrait | Single thin rule — understated elegance |
+| Others | No border (intentional — not every image needs framing) |
+
+Border elements use hierarchy colors at very low opacity (10–25%) so they frame without competing with the main composition. The border padding is 2.5% of the shorter canvas dimension.
 
 ## 13. Signature Mark
 

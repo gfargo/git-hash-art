@@ -48,7 +48,7 @@ import {
     pickStyleForShape,
     SHAPE_PROFILES
 } from "./canvas/shapes/affinity";
-import { createRng, seedFromHash } from "./utils";
+import { createRng, seedFromHash, createSimplexNoise, createFBM } from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
 import { selectArchetype, type BackgroundStyle } from "./archetypes";
 
@@ -74,7 +74,8 @@ type CompositionMode =
   | "flow-field"
   | "spiral"
   | "grid-subdivision"
-  | "clustered";
+  | "clustered"
+  | "golden-spiral";
 
 const COMPOSITION_MODES: CompositionMode[] = [
   "radial",
@@ -82,6 +83,7 @@ const COMPOSITION_MODES: CompositionMode[] = [
   "spiral",
   "grid-subdivision",
   "clustered",
+  "golden-spiral",
 ];
 
 // ── Helper: get position based on composition mode ──────────────────
@@ -137,6 +139,17 @@ function getCompositionPosition(
     case "flow-field":
     default: {
       return { x: rng() * width, y: rng() * height };
+    }
+    case "golden-spiral": {
+      // Logarithmic spiral: r = a * e^(b*theta), with golden angle spacing
+      const PHI = (1 + Math.sqrt(5)) / 2;
+      const goldenAngle = 2 * Math.PI / (PHI * PHI); // ~137.5° in radians
+      const t = shapeIndex / totalShapes;
+      const angle = shapeIndex * goldenAngle + rng() * 0.3;
+      const maxR = Math.min(width, height) * 0.44;
+      // Shapes spiral outward with sqrt distribution for even area coverage
+      const r = Math.sqrt(t) * maxR + (rng() - 0.5) * maxR * 0.08;
+      return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     }
   }
 }
@@ -643,16 +656,26 @@ export function renderHashArt(
   }
   ctx.globalAlpha = 1;
 
-  // ── 4. Flow field seed values ──────────────────────────────────
+  // ── 4. Flow field — simplex noise for organic variation ─────────
+  // Create a seeded simplex noise field (unique per hash)
+  const noiseFieldRng = createRng(seedFromHash(gitHash, 333));
+  const simplexNoise = createSimplexNoise(noiseFieldRng);
+  const fbmNoise = createFBM(simplexNoise, 3, 2.0, 0.5);
   const fieldAngleBase = rng() * Math.PI * 2;
-  const fieldFreq = 0.5 + rng() * 2;
+  const fieldFreq = 1.5 + rng() * 2.5; // noise sampling frequency
 
   function flowAngle(x: number, y: number): number {
-    return (
-      fieldAngleBase +
-      Math.sin((x / width) * fieldFreq * Math.PI * 2) * Math.PI * 0.5 +
-      Math.cos((y / height) * fieldFreq * Math.PI * 2) * Math.PI * 0.5
-    );
+    // Sample FBM noise at the position, scaled by frequency
+    const nx = (x / width) * fieldFreq;
+    const ny = (y / height) * fieldFreq;
+    return fieldAngleBase + fbmNoise(nx, ny) * Math.PI;
+  }
+
+  // Noise-based size modulation — shapes in "high noise" areas get scaled
+  function noiseSizeModulation(x: number, y: number): number {
+    const n = simplexNoise((x / width) * 3, (y / height) * 3);
+    // Map [-1,1] to [0.7, 1.3] — subtle terrain-like size variation
+    return 0.7 + (n + 1) * 0.3;
   }
 
   // Track all placed shapes for density checks and connecting curves
@@ -698,6 +721,8 @@ export function renderHashArt(
       gradientFillEnd: jitterColorHSL(colorHierarchy.secondary, rng, 10, 0.1),
       renderStyle: heroStyle,
       rng,
+      lightAngle,
+      scaleFactor,
     });
 
     heroCenter = { x: heroFocal.x, y: heroFocal.y, size: heroSize };
@@ -775,7 +800,7 @@ export function renderHashArt(
       const sizeT = Math.pow(rng(), archetype.sizePower);
       const size =
         (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
-        layerSizeScale;
+        layerSizeScale * noiseSizeModulation(x, y);
 
       // Size fraction for affinity-aware shape selection
       const sizeFraction = size / adjustedMaxSize;
@@ -900,6 +925,8 @@ export function renderHashArt(
         gradientFillEnd: gradientEnd,
         renderStyle: finalRenderStyle,
         rng,
+        lightAngle,
+        scaleFactor,
       };
 
       if (shouldMirror) {
@@ -1049,6 +1076,72 @@ export function renderHashArt(
 
   // Reset blend mode for post-processing passes
   ctx.globalCompositeOperation = "source-over";
+
+  // ── 5f. Layered masking / cutout portals ───────────────────────
+  // ~18% of images get 1-3 portal windows that paint over foreground
+  // with a tinted background wash, creating a "peek through" effect.
+  if (rng() < 0.18 && shapePositions.length > 3) {
+    const portalCount = 1 + Math.floor(rng() * 2);
+    for (let p = 0; p < portalCount; p++) {
+      // Pick a position biased toward placed shapes
+      const sourceShape = shapePositions[Math.floor(rng() * shapePositions.length)];
+      const portalX = sourceShape.x + (rng() - 0.5) * sourceShape.size * 0.5;
+      const portalY = sourceShape.y + (rng() - 0.5) * sourceShape.size * 0.5;
+      const portalSize = adjustedMaxSize * (0.15 + rng() * 0.25);
+
+      // Pick a portal shape from the palette
+      const portalShape = pickShapeFromPalette(shapePalette, rng, portalSize / adjustedMaxSize);
+      const portalRotation = rng() * 360;
+      const portalAlpha = 0.6 + rng() * 0.35;
+
+      ctx.save();
+      ctx.translate(portalX, portalY);
+      ctx.rotate((portalRotation * Math.PI) / 180);
+
+      // Step 1: Clip to the portal shape and fill with background wash
+      ctx.beginPath();
+      shapes[portalShape]?.(ctx, portalSize);
+      ctx.clip();
+
+      // Fill the clipped region with a radial gradient from background colors
+      const portalColor = jitterColorHSL(bgStart, rng, 15, 0.1);
+      const portalGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, portalSize);
+      portalGrad.addColorStop(0, portalColor);
+      portalGrad.addColorStop(1, bgEnd);
+      ctx.globalAlpha = portalAlpha;
+      ctx.fillStyle = portalGrad;
+      ctx.fillRect(-portalSize, -portalSize, portalSize * 2, portalSize * 2);
+
+      // Optional: subtle inner texture — a few tiny dots inside the portal
+      if (rng() < 0.5) {
+        const dotCount = 3 + Math.floor(rng() * 5);
+        ctx.globalAlpha = portalAlpha * 0.3;
+        ctx.fillStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.2);
+        for (let d = 0; d < dotCount; d++) {
+          const dx = (rng() - 0.5) * portalSize * 1.4;
+          const dy = (rng() - 0.5) * portalSize * 1.4;
+          const dr = (1 + rng() * 3) * scaleFactor;
+          ctx.beginPath();
+          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+
+      // Step 2: Draw a border ring around the portal (outside the clip)
+      ctx.save();
+      ctx.translate(portalX, portalY);
+      ctx.rotate((portalRotation * Math.PI) / 180);
+      ctx.globalAlpha = 0.15 + rng() * 0.2;
+      ctx.strokeStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.5);
+      ctx.lineWidth = (1.5 + rng() * 2.5) * scaleFactor;
+      ctx.beginPath();
+      shapes[portalShape]?.(ctx, portalSize * 1.06);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
 
   // ── 6. Flow-line pass — variable color, branching, pressure ────
@@ -1285,6 +1378,158 @@ export function renderHashArt(
     ctx.drawImage(canvas, 0, 0, width, height);
     ctx.restore();
     ctx.globalCompositeOperation = "source-over";
+  }
+
+  // 10d. Gradient map — map luminance through a two-color gradient
+  // Uses dominant→accent as the dark→light ramp for a cohesive tonal look
+  if (rng() < 0.35) {
+    const gmDark = colorHierarchy.dominant;
+    const gmLight = colorHierarchy.accent;
+    ctx.globalAlpha = 0.06 + rng() * 0.06; // very subtle: 6-12%
+    ctx.globalCompositeOperation = "color";
+    // Paint a linear gradient from dark color (top) to light color (bottom)
+    const gmGrad = ctx.createLinearGradient(0, 0, 0, height);
+    gmGrad.addColorStop(0, gmDark);
+    gmGrad.addColorStop(1, gmLight);
+    ctx.fillStyle = gmGrad;
+    ctx.fillRect(0, 0, width, height);
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ── 10e. Generative borders — archetype-driven decorative frames ──
+  {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    const borderRng = createRng(seedFromHash(gitHash, 314));
+    const borderPad = Math.min(width, height) * 0.025;
+    const borderColor = hexWithAlpha(colorHierarchy.accent, 0.2);
+    const borderColorSolid = colorHierarchy.accent;
+    const archName = archetype.name;
+
+    if (archName.includes("geometric") || archName.includes("op-art") || archName.includes("shattered")) {
+      // Clean ruled lines with corner ornaments
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = Math.max(1, 1.5 * scaleFactor);
+      ctx.globalAlpha = 0.18 + borderRng() * 0.1;
+
+      // Outer rule
+      ctx.strokeRect(borderPad, borderPad, width - borderPad * 2, height - borderPad * 2);
+      // Inner rule (thinner, offset)
+      const innerPad = borderPad * 1.8;
+      ctx.lineWidth = Math.max(0.5, 0.8 * scaleFactor);
+      ctx.globalAlpha *= 0.7;
+      ctx.strokeRect(innerPad, innerPad, width - innerPad * 2, height - innerPad * 2);
+
+      // Corner ornaments — small squares at each corner
+      const ornSize = borderPad * 0.6;
+      ctx.fillStyle = hexWithAlpha(borderColorSolid, 0.12);
+      const corners = [
+        [borderPad, borderPad],
+        [width - borderPad - ornSize, borderPad],
+        [borderPad, height - borderPad - ornSize],
+        [width - borderPad - ornSize, height - borderPad - ornSize],
+      ];
+      for (const [cx2, cy2] of corners) {
+        ctx.fillRect(cx2, cy2, ornSize, ornSize);
+        // Diagonal cross inside ornament
+        ctx.beginPath();
+        ctx.moveTo(cx2, cy2);
+        ctx.lineTo(cx2 + ornSize, cy2 + ornSize);
+        ctx.moveTo(cx2 + ornSize, cy2);
+        ctx.lineTo(cx2, cy2 + ornSize);
+        ctx.stroke();
+      }
+    } else if (archName.includes("botanical") || archName.includes("organic") || archName.includes("watercolor")) {
+      // Vine tendrils — organic curving lines along edges
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
+      ctx.lineWidth = Math.max(0.8, 1.2 * scaleFactor);
+      ctx.globalAlpha = 0.12 + borderRng() * 0.08;
+      ctx.lineCap = "round";
+
+      const tendrilCount = 8 + Math.floor(borderRng() * 8);
+      for (let t = 0; t < tendrilCount; t++) {
+        // Start from a random edge point
+        const edge = Math.floor(borderRng() * 4);
+        let tx: number, ty: number;
+        if (edge === 0) { tx = borderRng() * width; ty = borderPad; }
+        else if (edge === 1) { tx = borderRng() * width; ty = height - borderPad; }
+        else if (edge === 2) { tx = borderPad; ty = borderRng() * height; }
+        else { tx = width - borderPad; ty = borderRng() * height; }
+
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        const segs = 3 + Math.floor(borderRng() * 4);
+        for (let s = 0; s < segs; s++) {
+          const inward = borderPad * (1 + borderRng() * 2);
+          // Curl inward from edge
+          const cpx2 = tx + (borderRng() - 0.5) * borderPad * 4;
+          const cpy2 = ty + (edge < 2 ? (edge === 0 ? inward : -inward) : 0);
+          const cpx3 = tx + (edge >= 2 ? (edge === 2 ? inward : -inward) : (borderRng() - 0.5) * borderPad * 3);
+          const cpy3 = ty + (borderRng() - 0.5) * borderPad * 3;
+          tx = cpx3;
+          ty = cpy3;
+          ctx.quadraticCurveTo(cpx2, cpy2, tx, ty);
+        }
+        ctx.stroke();
+
+        // Small leaf/dot at tendril end
+        if (borderRng() < 0.6) {
+          ctx.beginPath();
+          ctx.arc(tx, ty, borderPad * (0.15 + borderRng() * 0.2), 0, Math.PI * 2);
+          ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.08);
+          ctx.fill();
+        }
+      }
+    } else if (archName.includes("celestial") || archName.includes("cosmic") || archName.includes("neon")) {
+      // Star-studded arcs along edges
+      ctx.globalAlpha = 0.1 + borderRng() * 0.08;
+      ctx.fillStyle = hexWithAlpha(colorHierarchy.accent, 0.2);
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.accent, 0.12);
+      ctx.lineWidth = Math.max(0.5, 0.7 * scaleFactor);
+
+      // Subtle arc along top and bottom
+      ctx.beginPath();
+      ctx.arc(cx, -height * 0.3, height * 0.6, 0.3, Math.PI - 0.3);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, height * 1.3, height * 0.6, Math.PI + 0.3, -0.3);
+      ctx.stroke();
+
+      // Scatter small stars along the border region
+      const starCount = 15 + Math.floor(borderRng() * 15);
+      for (let s = 0; s < starCount; s++) {
+        const edge = Math.floor(borderRng() * 4);
+        let sx: number, sy: number;
+        if (edge === 0) { sx = borderRng() * width; sy = borderPad * (0.5 + borderRng()); }
+        else if (edge === 1) { sx = borderRng() * width; sy = height - borderPad * (0.5 + borderRng()); }
+        else if (edge === 2) { sx = borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
+        else { sx = width - borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
+
+        const starR = (1 + borderRng() * 2.5) * scaleFactor;
+        // 4-point star
+        ctx.beginPath();
+        for (let p = 0; p < 8; p++) {
+          const a = (p / 8) * Math.PI * 2;
+          const r = p % 2 === 0 ? starR : starR * 0.4;
+          const px2 = sx + Math.cos(a) * r;
+          const py2 = sy + Math.sin(a) * r;
+          if (p === 0) ctx.moveTo(px2, py2);
+          else ctx.lineTo(px2, py2);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (archName.includes("minimal") || archName.includes("monochrome") || archName.includes("stipple")) {
+      // Thin single rule — understated elegance
+      ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);
+      ctx.lineWidth = Math.max(0.5, 0.6 * scaleFactor);
+      ctx.globalAlpha = 0.1 + borderRng() * 0.06;
+      ctx.strokeRect(borderPad * 1.5, borderPad * 1.5, width - borderPad * 3, height - borderPad * 3);
+    }
+    // Other archetypes: no border (intentional — not every image needs one)
+
+    ctx.restore();
   }
 
   // ── 11. Signature mark — unique geometric chop from hash prefix ──
