@@ -1,8 +1,77 @@
 import { createCanvas } from "@napi-rs/canvas";
-import { SacredColorScheme } from "./lib/canvas/colors";
+import {
+  SacredColorScheme,
+  hexWithAlpha,
+  jitterColor,
+} from "./lib/canvas/colors";
 import { enhanceShapeGeneration } from "./lib/canvas/draw";
 import { shapes } from "./lib/canvas/shapes";
 import { createRng, seedFromHash } from "./lib/utils";
+
+// Shape categories for weighted selection per layer
+const BASIC_SHAPES = [
+  "circle",
+  "square",
+  "triangle",
+  "hexagon",
+  "diamond",
+  "cube",
+];
+const COMPLEX_SHAPES = [
+  "star",
+  "jacked-star",
+  "heart",
+  "platonicSolid",
+  "fibonacciSpiral",
+  "islamicPattern",
+  "celticKnot",
+  "merkaba",
+  "fractal",
+];
+const SACRED_SHAPES = [
+  "mandala",
+  "flowerOfLife",
+  "treeOfLife",
+  "metatronsCube",
+  "sriYantra",
+  "seedOfLife",
+  "vesicaPiscis",
+  "torus",
+  "eggOfLife",
+];
+
+/**
+ * Pick a shape name using layer-weighted selection.
+ * Early layers favor basic shapes; later layers favor complex/sacred.
+ */
+function pickShape(
+  rng: () => number,
+  layerRatio: number,
+  shapeNames: string[],
+): string {
+  // layerRatio: 0 = first layer, 1 = last layer
+  const basicWeight = 1 - layerRatio * 0.6;
+  const complexWeight = 0.3 + layerRatio * 0.3;
+  const sacredWeight = 0.1 + layerRatio * 0.4;
+  const total = basicWeight + complexWeight + sacredWeight;
+
+  const roll = rng() * total;
+  let pool: string[];
+  if (roll < basicWeight) {
+    pool = BASIC_SHAPES;
+  } else if (roll < basicWeight + complexWeight) {
+    pool = COMPLEX_SHAPES;
+  } else {
+    pool = SACRED_SHAPES;
+  }
+
+  // Filter to shapes that actually exist in the registry
+  const available = pool.filter((s) => shapeNames.includes(s));
+  if (available.length === 0) {
+    return shapeNames[Math.floor(rng() * shapeNames.length)];
+  }
+  return available[Math.floor(rng() * available.length)];
+}
 
 /**
  * Generate an abstract art image from a git hash with custom configuration
@@ -61,32 +130,60 @@ function generateImageFromHash(gitHash: string, config = {}) {
   const adjustedMinSize = minShapeSize * scaleFactor;
   const adjustedMaxSize = maxShapeSize * scaleFactor;
 
-  // One master RNG seeded from the full hash — all randomness flows from here
+  // One master RNG seeded from the full hash
   const rng = createRng(seedFromHash(gitHash));
 
-  // Track shape positions for organic connecting curves later
+  // --- Focal points: 1-3 hash-derived attractors that bias shape placement ---
+  const numFocal = 1 + Math.floor(rng() * 2); // 1-2 focal points
+  const focalPoints: Array<{ x: number; y: number; strength: number }> = [];
+  for (let f = 0; f < numFocal; f++) {
+    focalPoints.push({
+      x: width * (0.2 + rng() * 0.6), // keep away from edges
+      y: height * (0.2 + rng() * 0.6),
+      strength: 0.3 + rng() * 0.4,
+    });
+  }
+
+  /**
+   * Bias a position toward the nearest focal point.
+   * Returns a blended position between the random point and the focal point.
+   */
+  function applyFocalBias(rx: number, ry: number): [number, number] {
+    // Find nearest focal point
+    let nearest = focalPoints[0];
+    let minDist = Infinity;
+    for (const fp of focalPoints) {
+      const d = Math.hypot(rx - fp.x, ry - fp.y);
+      if (d < minDist) {
+        minDist = d;
+        nearest = fp;
+      }
+    }
+    // Blend toward focal point based on strength and a random factor
+    const pull = nearest.strength * rng() * 0.5;
+    return [rx + (nearest.x - rx) * pull, ry + (nearest.y - ry) * pull];
+  }
+
   const shapePositions: Array<{ x: number; y: number }> = [];
 
   for (let layer = 0; layer < layers; layer++) {
+    const layerRatio = layers > 1 ? layer / (layers - 1) : 0;
     const numShapes =
       finalConfig.shapesPerLayer +
       Math.floor(rng() * finalConfig.shapesPerLayer * 0.3);
 
-    // Layer opacity decays gently so all layers remain visible
     const layerOpacity = Math.max(0.15, baseOpacity - layer * opacityReduction);
-
-    // Later layers use smaller shapes for depth
     const layerSizeScale = 1 - layer * 0.15;
 
     for (let i = 0; i < numShapes; i++) {
-      // True random placement across the full canvas
-      const x = rng() * width;
-      const y = rng() * height;
+      // Random position biased toward focal points
+      const rawX = rng() * width;
+      const rawY = rng() * height;
+      const [x, y] = applyFocalBias(rawX, rawY);
 
-      const shapeIdx = Math.floor(rng() * shapeNames.length);
-      const shape = shapeNames[shapeIdx];
+      // Weighted shape selection: basic early, complex/sacred later
+      const shape = pickShape(rng, layerRatio, shapeNames);
 
-      // Shape size follows a power distribution — many small, few large
       const sizeT = Math.pow(rng(), 1.8);
       const size =
         (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
@@ -94,21 +191,42 @@ function generateImageFromHash(gitHash: string, config = {}) {
 
       const rotation = rng() * 360;
 
-      const fillColor = colors[Math.floor(rng() * colors.length)];
-      const strokeColor = colors[Math.floor(rng() * colors.length)];
+      // Color jitter: slight variation on each pick for organic feel
+      const baseFill = colors[Math.floor(rng() * colors.length)];
+      const baseStroke = colors[Math.floor(rng() * colors.length)];
+      const fillColor = jitterColor(baseFill, rng, 0.08);
+      const strokeColor = jitterColor(baseStroke, rng, 0.06);
 
-      // Vary stroke width by shape size for visual interest
+      // Semi-transparent fill for watercolor layering effect
+      const fillAlpha = 0.25 + rng() * 0.5;
+      const transparentFill = hexWithAlpha(fillColor, fillAlpha);
+
       const strokeWidth = (0.5 + rng() * 2.0) * scaleFactor;
 
       ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5);
 
+      // Glow: ~25% of shapes get a soft glow, more likely on sacred shapes
+      const isSacred = SACRED_SHAPES.includes(shape);
+      const glowChance = isSacred ? 0.45 : 0.2;
+      const hasGlow = rng() < glowChance;
+      const glowRadius = hasGlow ? (8 + rng() * 20) * scaleFactor : 0;
+
+      // Gradient fill: ~30% of shapes get a radial gradient
+      const hasGradient = rng() < 0.3;
+      const gradientEnd = hasGradient
+        ? jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.1)
+        : undefined;
+
       enhanceShapeGeneration(ctx, shape, x, y, {
-        fillColor,
+        fillColor: transparentFill,
         strokeColor,
         strokeWidth,
         size,
         rotation,
         proportionType: "GOLDEN_RATIO",
+        glowRadius,
+        glowColor: hasGlow ? hexWithAlpha(fillColor, 0.6) : undefined,
+        gradientFillEnd: gradientEnd,
       });
 
       shapePositions.push({ x, y });
@@ -122,7 +240,6 @@ function generateImageFromHash(gitHash: string, config = {}) {
 
     for (let i = 0; i < numCurves; i++) {
       const idxA = Math.floor(rng() * shapePositions.length);
-      // Pick a nearby shape (within the next few indices for locality)
       const offset =
         1 + Math.floor(rng() * Math.min(5, shapePositions.length - 1));
       const idxB = (idxA + offset) % shapePositions.length;
@@ -130,7 +247,6 @@ function generateImageFromHash(gitHash: string, config = {}) {
       const a = shapePositions[idxA];
       const b = shapePositions[idxB];
 
-      // Bezier control points offset perpendicular to the line
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
       const dx = b.x - a.x;
@@ -142,7 +258,10 @@ function generateImageFromHash(gitHash: string, config = {}) {
       const cpy = my + (dx / (dist || 1)) * bulge;
 
       ctx.globalAlpha = 0.08 + rng() * 0.12;
-      ctx.strokeStyle = colors[Math.floor(rng() * colors.length)];
+      ctx.strokeStyle = hexWithAlpha(
+        colors[Math.floor(rng() * colors.length)],
+        0.3,
+      );
 
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
@@ -157,13 +276,6 @@ function generateImageFromHash(gitHash: string, config = {}) {
 
 /**
  * Save the generated image to a file
- * @param {Buffer} imageBuffer - The PNG buffer of the generated image
- * @param {string} outputDir - The directory to save the image
- * @param {string} gitHash - The git hash used to generate the image
- * @param {string} [label=''] - Label for the output file
- * @param {number} width - The width of the generated image
- * @param {number} height - The height of the generated image
- * @returns {string} Path to the saved image
  */
 function saveImageToFile(
   imageBuffer: string,
