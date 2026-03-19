@@ -1074,7 +1074,8 @@ export function renderHashArt(
   ctx.globalCompositeOperation = "source-over";
 
   // ── 5f. Layered masking / cutout portals ───────────────────────
-  // ~18% of images get 1-3 portal cutouts that reveal the background
+  // ~18% of images get 1-3 portal windows that paint over foreground
+  // with a tinted background wash, creating a "peek through" effect.
   if (rng() < 0.18 && shapePositions.length > 3) {
     const portalCount = 1 + Math.floor(rng() * 2);
     for (let p = 0; p < portalCount; p++) {
@@ -1086,38 +1087,55 @@ export function renderHashArt(
 
       // Pick a portal shape from the palette
       const portalShape = pickShapeFromPalette(shapePalette, rng, portalSize / adjustedMaxSize);
+      const portalRotation = rng() * 360;
+      const portalAlpha = 0.6 + rng() * 0.35;
 
       ctx.save();
-
-      // Step 1: Draw a subtle border ring around the portal
-      ctx.globalAlpha = 0.15 + rng() * 0.15;
-      ctx.strokeStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.4);
-      ctx.lineWidth = (1.5 + rng() * 2) * scaleFactor;
       ctx.translate(portalX, portalY);
-      ctx.rotate((rng() * 360 * Math.PI) / 180);
-      ctx.beginPath();
-      shapes[portalShape]?.(ctx, portalSize * 1.08);
-      ctx.stroke();
+      ctx.rotate((portalRotation * Math.PI) / 180);
 
-      // Step 2: Cut out the shape via destination-out
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.globalAlpha = 0.6 + rng() * 0.3; // partial to full cutout
+      // Step 1: Clip to the portal shape and fill with background wash
       ctx.beginPath();
       shapes[portalShape]?.(ctx, portalSize);
-      ctx.fill();
+      ctx.clip();
 
-      // Step 3: Fill the cutout with a tinted background wash
-      ctx.globalCompositeOperation = "destination-over";
-      ctx.globalAlpha = 0.8;
+      // Fill the clipped region with a radial gradient from background colors
       const portalColor = jitterColorHSL(bgStart, rng, 15, 0.1);
       const portalGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, portalSize);
-      portalGrad.addColorStop(0, hexWithAlpha(portalColor, 0.9));
-      portalGrad.addColorStop(1, hexWithAlpha(bgEnd, 0.7));
+      portalGrad.addColorStop(0, portalColor);
+      portalGrad.addColorStop(1, bgEnd);
+      ctx.globalAlpha = portalAlpha;
       ctx.fillStyle = portalGrad;
       ctx.fillRect(-portalSize, -portalSize, portalSize * 2, portalSize * 2);
 
+      // Optional: subtle inner texture — a few tiny dots inside the portal
+      if (rng() < 0.5) {
+        const dotCount = 3 + Math.floor(rng() * 5);
+        ctx.globalAlpha = portalAlpha * 0.3;
+        ctx.fillStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.2);
+        for (let d = 0; d < dotCount; d++) {
+          const dx = (rng() - 0.5) * portalSize * 1.4;
+          const dy = (rng() - 0.5) * portalSize * 1.4;
+          const dr = (1 + rng() * 3) * scaleFactor;
+          ctx.beginPath();
+          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       ctx.restore();
-      ctx.globalCompositeOperation = "source-over";
+
+      // Step 2: Draw a border ring around the portal (outside the clip)
+      ctx.save();
+      ctx.translate(portalX, portalY);
+      ctx.rotate((portalRotation * Math.PI) / 180);
+      ctx.globalAlpha = 0.15 + rng() * 0.2;
+      ctx.strokeStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.5);
+      ctx.lineWidth = (1.5 + rng() * 2.5) * scaleFactor;
+      ctx.beginPath();
+      shapes[portalShape]?.(ctx, portalSize * 1.06);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 

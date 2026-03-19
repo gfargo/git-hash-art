@@ -458,17 +458,17 @@ Each member shape uses hierarchy colors with HSL jitter and affinity-aware rende
 
 ### 5f. Layered Masking / Cutout Portals
 
-~18% of images receive 1–3 **portal cutouts** — shape-sized windows that punch through the foreground layers to reveal the background beneath. This creates a layered collage effect where the composition has visible depth.
+~18% of images receive 1–3 **portal cutouts** — shape-sized windows that paint over the foreground layers with a background wash, creating a "peek through" depth effect.
 
 The process for each portal:
 
 1. **Position:** Biased toward an existing placed shape (with slight random offset), so portals appear in visually active areas rather than empty space
 2. **Shape:** Selected from the shape palette at the portal's size fraction, so the cutout shape is palette-coherent
-3. **Border ring:** A subtle stroke outline at 108% of the portal size (15–30% opacity) frames the cutout
-4. **Cutout:** The shape is filled with `destination-out` compositing at 60–90% opacity, partially or fully erasing the foreground layers within the shape boundary
-5. **Background wash:** A tinted radial gradient (derived from the background colors with HSL jitter) is drawn behind the cutout via `destination-over`, so the portal reveals a softly colored void rather than raw canvas
+3. **Clip and fill:** The shape is used as a clip region, then a radial gradient (derived from the background colors with HSL jitter) is painted over the foreground at 60–95% opacity. This "erases" the foreground shapes within the portal boundary and replaces them with a soft background wash
+4. **Inner texture (~50%):** Tiny scattered dots inside the portal at low opacity add subtle depth to the wash
+5. **Border ring:** A subtle stroke outline at 106% of the portal size (15–35% opacity) frames the window, drawn outside the clip so it sits on top of everything
 
-The partial opacity on the cutout (60–90%) means some portals are translucent windows while others are full punch-throughs, creating varied depth effects.
+The variable opacity (60–95%) means some portals are translucent peeks while others fully reveal the background, creating varied depth effects without punching actual transparent holes in the canvas.
 
 ## 10. Render Styles
 
