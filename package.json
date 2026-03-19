@@ -1,6 +1,6 @@
 {
   "name": "git-hash-art",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": "gfargo <ghfargo@gmail.com>",
   "scripts": {
     "watch": "parcel watch",
