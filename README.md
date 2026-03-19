@@ -7,11 +7,18 @@ Works in both Node.js and browser environments.
 ## Features
 
 - Deterministic output — same hash always produces the same image
-- Hash-derived harmonious color schemes (analogic, complementary, and triadic palettes)
+- Hash-driven color palettes — 6 variation modes × 5 scheme types for dramatic palette diversity
+- Per-layer blend modes — `screen`, `multiply`, `overlay`, `soft-light`, and more for painterly depth
+- 6 shape render styles — fill+stroke, wireframe, dashed, double-stroke, watercolor bleed, fill-only
 - 20+ shape types across three categories: basic, complex, and sacred geometry
 - Layered composition with depth — early layers use simple shapes, later layers use intricate ones
+- Atmospheric perspective — later layers desaturate for foreground/background separation
+- Negative space — void zones and density-aware placement create intentional breathing room
 - Watercolor-style transparency with semi-transparent fills and color blending
+- Organic edges — ~15% of shapes get multi-pass watercolor bleed for hand-drawn quality
 - Glow effects on sacred geometry shapes for an ethereal quality
+- Layered backgrounds — faint shapes and concentric rings add texture before the main layers
+- Tapered flow lines — brush-stroke curves with width and opacity tapering
 - Radial gradient fills and organic color jitter for a hand-painted feel
 - Organic bezier curves connecting nearby shapes
 - Configurable canvas size, layers, shape sizes, and opacity
