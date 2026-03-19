@@ -614,7 +614,17 @@ export function renderHashArt(
     ctx.fillRect(nx, ny, 1 * scaleFactor, 1 * scaleFactor);
   }
 
-  // ── 8. Organic connecting curves ───────────────────────────────
+  // ── 8. Vignette — darken edges to draw the eye inward ───────────
+  ctx.globalAlpha = 1;
+  const vignetteStrength = 0.25 + rng() * 0.2; // 25-45% edge darkening
+  const vigGrad = ctx.createRadialGradient(cx, cy, Math.min(width, height) * 0.3, cx, cy, bgRadius);
+  vigGrad.addColorStop(0, "rgba(0,0,0,0)");
+  vigGrad.addColorStop(0.6, "rgba(0,0,0,0)");
+  vigGrad.addColorStop(1, `rgba(0,0,0,${vignetteStrength.toFixed(3)})`);
+  ctx.fillStyle = vigGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  // ── 9. Organic connecting curves ───────────────────────────────
   if (shapePositions.length > 1) {
     const numCurves = Math.floor((8 * (width * height)) / (1024 * 1024));
     ctx.lineWidth = 0.8 * scaleFactor;
