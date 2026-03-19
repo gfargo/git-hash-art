@@ -5,17 +5,29 @@
  * identically in Node (@napi-rs/canvas) and browsers.
  *
  * Generation pipeline:
- *   1. Background — radial gradient from hash-derived dark palette
- *   2. Composition mode — hash selects: radial, flow-field, spiral, grid-subdivision, or clustered
- *   3. Color field — smooth positional color blending across the canvas
- *   4. Shape layers — weighted selection, focal-point placement, transparency, glow, gradients, jitter
- *   5. Recursive nesting — some shapes contain smaller shapes inside
- *   6. Flow-line pass — bezier curves following a hash-derived vector field
- *   7. Noise texture overlay — subtle grain for organic feel
- *   8. Organic connecting curves — beziers between nearby shapes
+ *   1.  Background — radial gradient from hash-derived dark palette
+ *   1b. Layered background — large faint shapes / subtle pattern for depth
+ *   2.  Composition mode — hash selects: radial, flow-field, spiral, grid-subdivision, or clustered
+ *   3.  Focal points + void zones (negative space)
+ *   4.  Flow field seed values
+ *   5.  Shape layers — blend modes, render styles, weighted selection,
+ *       focal-point placement, atmospheric depth, organic edges
+ *   5b. Recursive nesting
+ *   6.  Flow-line pass — tapered brush-stroke curves
+ *   7.  Noise texture overlay
+ *   8.  Organic connecting curves
  */
-import { SacredColorScheme, hexWithAlpha, jitterColor } from "./canvas/colors";
-import { enhanceShapeGeneration } from "./canvas/draw";
+import {
+    SacredColorScheme,
+    hexWithAlpha,
+    jitterColor,
+    desaturate,
+} from "./canvas/colors";
+import {
+    enhanceShapeGeneration,
+    pickBlendMode,
+    pickRenderStyle,
+} from "./canvas/draw";
 import { shapes } from "./canvas/shapes";
 import { createRng, seedFromHash } from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
@@ -95,26 +107,6 @@ function pickShape(
   return available[Math.floor(rng() * available.length)];
 }
 
-// ── Helper: simple 2D value noise (hash-seeded) ─────────────────────
-
-function valueNoise(
-  x: number,
-  y: number,
-  scale: number,
-  rng: () => number,
-): number {
-  // Cheap pseudo-noise: combine sin waves at different frequencies
-  const nx = x / scale;
-  const ny = y / scale;
-  return (
-    (Math.sin(nx * 1.7 + ny * 2.3 + rng() * 0.001) * 0.5 +
-      Math.sin(nx * 3.1 - ny * 1.9 + rng() * 0.001) * 0.3 +
-      Math.sin(nx * 5.3 + ny * 4.7 + rng() * 0.001) * 0.2) *
-      0.5 +
-    0.5
-  );
-}
-
 // ── Helper: get position based on composition mode ──────────────────
 
 function getCompositionPosition(
@@ -154,10 +146,8 @@ function getCompositionPosition(
       };
     }
     case "clustered": {
-      // Pick one of 3-5 cluster centers, then scatter around it
       const numClusters = 3 + Math.floor(rng() * 3);
       const ci = Math.floor(rng() * numClusters);
-      // Deterministic cluster center from index
       const clusterRng = createRng(seedFromHash(String(ci), 999));
       const clx = width * (0.15 + clusterRng() * 0.7);
       const cly = height * (0.15 + clusterRng() * 0.7);
@@ -169,7 +159,6 @@ function getCompositionPosition(
     }
     case "flow-field":
     default: {
-      // Random position, will be adjusted by flow field direction later
       return { x: rng() * width, y: rng() * height };
     }
   }
@@ -185,14 +174,39 @@ function getPositionalColor(
   colors: string[],
   rng: () => number,
 ): string {
-  // Blend between palette colors based on position
   const nx = x / width;
   const ny = y / height;
-  // Use position to bias which palette color is chosen
   const posIndex = (nx * 0.6 + ny * 0.4) * (colors.length - 1);
   const baseIdx = Math.floor(posIndex) % colors.length;
-  // Then jitter it slightly
   return jitterColor(colors[baseIdx], rng, 0.08);
+}
+
+// ── Helper: check if a position is inside a void zone (Feature E) ───
+
+function isInVoidZone(
+  x: number,
+  y: number,
+  voidZones: Array<{ x: number; y: number; radius: number }>,
+): boolean {
+  for (const zone of voidZones) {
+    if (Math.hypot(x - zone.x, y - zone.y) < zone.radius) return true;
+  }
+  return false;
+}
+
+// ── Helper: density check for negative space (Feature E) ────────────
+
+function localDensity(
+  x: number,
+  y: number,
+  positions: Array<{ x: number; y: number; size: number }>,
+  radius: number,
+): number {
+  let count = 0;
+  for (const p of positions) {
+    if (Math.hypot(x - p.x, y - p.y) < radius) count++;
+  }
+  return count;
 }
 
 // ── Main render function ────────────────────────────────────────────
@@ -238,11 +252,39 @@ export function renderHashArt(
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, width, height);
 
+  // ── 1b. Layered background (Feature G) ─────────────────────────
+  // Draw large, very faint shapes to give the background texture
+  const bgShapeCount = 3 + Math.floor(rng() * 4);
+  ctx.globalCompositeOperation = "soft-light";
+  for (let i = 0; i < bgShapeCount; i++) {
+    const bx = rng() * width;
+    const by = rng() * height;
+    const bSize = (width * 0.3 + rng() * width * 0.5);
+    const bColor = colors[Math.floor(rng() * colors.length)];
+    ctx.globalAlpha = 0.03 + rng() * 0.05;
+    ctx.fillStyle = hexWithAlpha(bColor, 0.15);
+    ctx.beginPath();
+    ctx.arc(bx, by, bSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Subtle concentric rings from center
+  const ringCount = 2 + Math.floor(rng() * 3);
+  ctx.globalAlpha = 0.02 + rng() * 0.03;
+  ctx.strokeStyle = hexWithAlpha(colors[0], 0.1);
+  ctx.lineWidth = 1 * scaleFactor;
+  for (let i = 1; i <= ringCount; i++) {
+    const r = (Math.min(width, height) * 0.15) * i;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = "source-over";
+
   // ── 2. Composition mode ────────────────────────────────────────
   const compositionMode =
     COMPOSITION_MODES[Math.floor(rng() * COMPOSITION_MODES.length)];
 
-  // ── 3. Focal points ────────────────────────────────────────────
+  // ── 3. Focal points + void zones ───────────────────────────────
   const numFocal = 1 + Math.floor(rng() * 2);
   const focalPoints: Array<{ x: number; y: number; strength: number }> = [];
   for (let f = 0; f < numFocal; f++) {
@@ -250,6 +292,17 @@ export function renderHashArt(
       x: width * (0.2 + rng() * 0.6),
       y: height * (0.2 + rng() * 0.6),
       strength: 0.3 + rng() * 0.4,
+    });
+  }
+
+  // Feature E: 1-2 void zones where shapes are sparse (negative space)
+  const numVoids = Math.floor(rng() * 2) + 1;
+  const voidZones: Array<{ x: number; y: number; radius: number }> = [];
+  for (let v = 0; v < numVoids; v++) {
+    voidZones.push({
+      x: width * (0.15 + rng() * 0.7),
+      y: height * (0.15 + rng() * 0.7),
+      radius: Math.min(width, height) * (0.06 + rng() * 0.1),
     });
   }
 
@@ -267,7 +320,7 @@ export function renderHashArt(
     return [rx + (nearest.x - rx) * pull, ry + (nearest.y - ry) * pull];
   }
 
-  // ── 4. Flow field seed values (for flow-field mode & line pass) ─
+  // ── 4. Flow field seed values ──────────────────────────────────
   const fieldAngleBase = rng() * Math.PI * 2;
   const fieldFreq = 0.5 + rng() * 2;
 
@@ -281,6 +334,8 @@ export function renderHashArt(
 
   // ── 5. Shape layers ────────────────────────────────────────────
   const shapePositions: Array<{ x: number; y: number; size: number }> = [];
+  const densityCheckRadius = Math.min(width, height) * 0.08;
+  const maxLocalDensity = Math.ceil(finalConfig.shapesPerLayer * 0.15);
 
   for (let layer = 0; layer < layers; layer++) {
     const layerRatio = layers > 1 ? layer / (layers - 1) : 0;
@@ -289,6 +344,16 @@ export function renderHashArt(
       Math.floor(rng() * finalConfig.shapesPerLayer * 0.3);
     const layerOpacity = Math.max(0.15, baseOpacity - layer * opacityReduction);
     const layerSizeScale = 1 - layer * 0.15;
+
+    // Feature B: per-layer blend mode
+    const layerBlend = pickBlendMode(rng);
+    ctx.globalCompositeOperation = layerBlend;
+
+    // Feature C: per-layer render style bias
+    const layerRenderStyle = pickRenderStyle(rng);
+
+    // Feature D: atmospheric desaturation for later layers
+    const atmosphericDesat = layerRatio * 0.3; // 0 for first layer, up to 0.3 for last
 
     for (let i = 0; i < numShapes; i++) {
       // Position from composition mode, then focal bias
@@ -303,6 +368,15 @@ export function renderHashArt(
         cy,
       );
       const [x, y] = applyFocalBias(rawPos.x, rawPos.y);
+
+      // Feature E: skip shapes in void zones, reduce in dense areas
+      if (isInVoidZone(x, y, voidZones)) {
+        // 85% chance to skip — allows a few shapes to bleed in
+        if (rng() < 0.85) continue;
+      }
+      if (localDensity(x, y, shapePositions, densityCheckRadius) > maxLocalDensity) {
+        if (rng() < 0.6) continue; // thin out dense areas
+      }
 
       // Weighted shape selection
       const shape = pickShape(rng, layerRatio, shapeNames);
@@ -320,8 +394,14 @@ export function renderHashArt(
           : rng() * 360;
 
       // Positional color blending + jitter
-      const fillBase = getPositionalColor(x, y, width, height, colors, rng);
+      let fillBase = getPositionalColor(x, y, width, height, colors, rng);
       const strokeBase = colors[Math.floor(rng() * colors.length)];
+
+      // Feature D: desaturate colors on later layers for depth
+      if (atmosphericDesat > 0) {
+        fillBase = desaturate(fillBase, atmosphericDesat);
+      }
+
       const fillColor = jitterColor(fillBase, rng, 0.06);
       const strokeColor = jitterColor(strokeBase, rng, 0.05);
 
@@ -345,6 +425,14 @@ export function renderHashArt(
         ? jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.1)
         : undefined;
 
+      // Feature C: per-shape render style (70% use layer style, 30% pick their own)
+      const shapeRenderStyle =
+        rng() < 0.7 ? layerRenderStyle : pickRenderStyle(rng);
+
+      // Feature F: organic edge jitter — applied via watercolor style on ~15% of shapes
+      const useOrganicEdges = rng() < 0.15 && shapeRenderStyle === "fill-and-stroke";
+      const finalRenderStyle = useOrganicEdges ? "watercolor" : shapeRenderStyle;
+
       enhanceShapeGeneration(ctx, shape, x, y, {
         fillColor: transparentFill,
         strokeColor,
@@ -355,11 +443,13 @@ export function renderHashArt(
         glowRadius,
         glowColor: hasGlow ? hexWithAlpha(fillColor, 0.6) : undefined,
         gradientFillEnd: gradientEnd,
+        renderStyle: finalRenderStyle,
+        rng,
       });
 
       shapePositions.push({ x, y, size });
 
-      // ── 5b. Recursive nesting: ~15% of larger shapes get inner shapes ──
+      // ── 5b. Recursive nesting ──────────────────────────────────
       if (size > adjustedMaxSize * 0.4 && rng() < 0.15) {
         const innerCount = 1 + Math.floor(rng() * 3);
         for (let n = 0; n < innerCount; n++) {
@@ -390,6 +480,8 @@ export function renderHashArt(
               size: innerSize,
               rotation: innerRot,
               proportionType: "GOLDEN_RATIO",
+              renderStyle: shapeRenderStyle,
+              rng,
             },
           );
         }
@@ -397,39 +489,52 @@ export function renderHashArt(
     }
   }
 
-  // ── 6. Flow-line pass ──────────────────────────────────────────
-  // Draw flowing curves that follow the hash-derived vector field
+  // Reset blend mode for post-processing passes
+  ctx.globalCompositeOperation = "source-over";
+
+  // ── 6. Flow-line pass (Feature H: tapered brush strokes) ───────
   const numFlowLines = 6 + Math.floor(rng() * 10);
   for (let i = 0; i < numFlowLines; i++) {
     let fx = rng() * width;
     let fy = rng() * height;
     const steps = 30 + Math.floor(rng() * 40);
     const stepLen = (3 + rng() * 5) * scaleFactor;
+    const startWidth = (1 + rng() * 3) * scaleFactor;
 
-    ctx.globalAlpha = 0.06 + rng() * 0.1;
-    ctx.strokeStyle = hexWithAlpha(
+    const lineColor = hexWithAlpha(
       colors[Math.floor(rng() * colors.length)],
       0.4,
     );
-    ctx.lineWidth = (0.5 + rng() * 1.5) * scaleFactor;
+    const lineAlpha = 0.06 + rng() * 0.1;
 
-    ctx.beginPath();
-    ctx.moveTo(fx, fy);
-
+    // Draw as individual segments with tapering width
+    let prevX = fx;
+    let prevY = fy;
     for (let s = 0; s < steps; s++) {
       const angle = flowAngle(fx, fy) + (rng() - 0.5) * 0.3;
       fx += Math.cos(angle) * stepLen;
       fy += Math.sin(angle) * stepLen;
 
-      // Stay in bounds
       if (fx < 0 || fx > width || fy < 0 || fy > height) break;
+
+      // Taper: thick at start, thin at end
+      const taper = 1 - (s / steps) * 0.8;
+      ctx.globalAlpha = lineAlpha * taper;
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = startWidth * taper;
+      ctx.lineCap = "round";
+
+      ctx.beginPath();
+      ctx.moveTo(prevX, prevY);
       ctx.lineTo(fx, fy);
+      ctx.stroke();
+
+      prevX = fx;
+      prevY = fy;
     }
-    ctx.stroke();
   }
 
   // ── 7. Noise texture overlay ───────────────────────────────────
-  // Subtle grain rendered as tiny semi-transparent dots
   const noiseRng = createRng(seedFromHash(gitHash, 777));
   const noiseDensity = Math.floor((width * height) / 800);
   for (let i = 0; i < noiseDensity; i++) {
