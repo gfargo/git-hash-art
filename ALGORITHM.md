@@ -9,27 +9,32 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Color Scheme (hash-driven variation + scheme type selection)
+  ├─► Color Scheme (hash-driven variation + scheme type + temperature mode)
   │
   └─► Rendering Pipeline
        │
-       1.  Background Layer (radial gradient)
+       1.  Background Layer (radial gradient, temperature-shifted)
        1b. Layered Background (faint shapes + concentric rings)
        2.  Composition Mode Selection
-       3.  Focal Points + Void Zones (negative space)
+       2b. Symmetry Mode Selection (none / bilateral / quad)
+       3.  Focal Points (rule-of-thirds biased) + Void Zones
        4.  Flow Field Initialization
+       4b. Hero Shape (large focal anchor, ~60% of images)
        5.  Shape Layers (× N layers)
        │   ├─ Blend Mode (per-layer compositing)
-       │   ├─ Render Style (fill+stroke, wireframe, dashed, watercolor, etc.)
+       │   ├─ Render Style (fill+stroke, wireframe, dashed, watercolor, hatched, incomplete, etc.)
        │   ├─ Position (composition mode + focal bias + density check)
        │   ├─ Shape Selection (layer-weighted)
        │   ├─ Atmospheric Depth (desaturation on later layers)
+       │   ├─ Temperature Contrast (foreground opposite to background)
        │   ├─ Styling (transparency, glow, gradients, color jitter)
        │   ├─ Organic Edges (~15% watercolor bleed)
        │   └─ Recursive Nesting (~15% of large shapes)
        6.  Flow-Line Pass (tapered brush strokes)
+       6b. Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        7.  Noise Texture Overlay
-       8.  Organic Connecting Curves
+       8.  Vignette (radial edge darkening)
+       9.  Organic Connecting Curves
 ```
 
 ## 1. Deterministic RNG
@@ -53,7 +58,19 @@ The `SacredColorScheme` class derives three harmonious palettes from the hash:
 | Complementary | hue = seed + 180°, contrasting variation | Contrast accents |
 | Triadic | hue = seed + 120° | Additional variety |
 
-These are merged and deduplicated into a single 6-8 color palette. Background colors are darkened variants (65% and 55% brightness) of the base scheme.
+These are merged and deduplicated into a single 6-8 color palette. Background colors are darkened variants (65% and 55% brightness) of the base scheme, with optional temperature shifting.
+
+### Temperature Contrast
+
+The hash deterministically selects a **temperature mode** that creates warm/cool tension across the image:
+
+| Mode | Probability | Background | Foreground |
+|------|-------------|------------|------------|
+| `warm-bg` | ~40% | Hues shifted toward orange (30°) | Hues shifted toward blue (210°) |
+| `cool-bg` | ~40% | Hues shifted toward blue (210°) | Hues shifted toward orange (30°) |
+| `neutral` | ~20% | No temperature shift | No temperature shift |
+
+The shift amount is subtle (15-25%) and increases on later layers, creating progressive temperature separation between foreground and background elements. This produces the kind of warm/cool interplay seen in classical painting.
 
 ### Hash-Driven Color Variation
 
@@ -75,6 +92,7 @@ Scheme types also vary: `analogic`, `mono`, `contrast`, `triade`, `tetrade`. The
 - **`hexWithAlpha(hex, alpha)`** — converts hex to `rgba()` for transparency
 - **`jitterColor(hex, rng, amount)`** — applies ±amount RGB jitter per channel for organic variation
 - **`desaturate(hex, amount)`** — blends toward luminance gray for atmospheric depth
+- **`shiftTemperature(hex, target, amount)`** — shifts hue toward warm (orange) or cool (blue)
 - **Positional blending** — shape fill color is biased by canvas position, creating smooth color flow across the image
 
 ## 3. Background
@@ -104,9 +122,31 @@ The hash deterministically selects one of five composition strategies that contr
 
 Each mode produces fundamentally different visual character from the same shape set.
 
+### Symmetry Modes
+
+~25% of hashes trigger a symmetry mode that mirrors the rendered content:
+
+| Mode | Probability | Effect |
+|------|-------------|--------|
+| `bilateral-x` | 10% | Left half mirrored onto right half |
+| `bilateral-y` | 10% | Top half mirrored onto bottom half |
+| `quad` | 5% | Both axes mirrored (4-fold symmetry) |
+| `none` | 75% | No mirroring |
+
+Symmetry is applied after shape layers and flow lines but before post-processing (noise, vignette, connecting curves). This means the mirrored content gets the same noise texture and vignette as the original, maintaining visual consistency. Symmetrical generative art is disproportionately appealing to humans due to our innate preference for bilateral symmetry.
+
 ## 5. Focal Points & Negative Space
 
-1-2 focal points are placed on the canvas (kept away from edges). Every shape position is pulled toward the nearest focal point by a strength factor (30-70%), creating areas of visual density and intentional-looking composition rather than uniform scatter.
+1-2 focal points are placed on the canvas. **70% of the time**, focal points snap to **rule-of-thirds intersection points** (with slight jitter to avoid a mechanical look), creating compositions that feel intentionally designed. The remaining 30% use free placement within the central 60% of the canvas. Every shape position is pulled toward the nearest focal point by a strength factor (30-70%).
+
+### Hero Shape
+
+~60% of images receive a **hero shape** — a large sacred or complex geometry piece anchored at the primary focal point. The hero shape:
+- Uses sacred/complex shape types (flower of life, fibonacci spiral, merkaba, fractal, etc.)
+- Is sized at 80-130% of the maximum shape size for visual dominance
+- Gets glow effects, gradient fills, and often watercolor rendering
+- Is drawn before the main shape layers so other shapes layer on top of it
+- Creates a clear center of gravity that anchors the entire composition
 
 ### Void Zones (Negative Space)
 
@@ -142,12 +182,14 @@ Instead of always `fill()` + `stroke()`, each shape gets a rendering treatment:
 
 | Style | Description | Probability |
 |-------|-------------|-------------|
-| `fill-and-stroke` | Classic solid fill with outline | ~29% (weighted) |
-| `fill-only` | Soft shapes with no outline | ~14% |
-| `stroke-only` | Wireframe with ghost fill at 30% alpha | ~14% |
-| `double-stroke` | Outer stroke at 2× width + inner stroke in fill color | ~14% |
-| `dashed` | Dashed outline (5% size dash, 3% gap) | ~14% |
-| `watercolor` | 3-4 slightly offset passes at low opacity for bleed effect | ~14% |
+| `fill-and-stroke` | Classic solid fill with outline | ~22% (weighted) |
+| `fill-only` | Soft shapes with no outline | ~11% |
+| `stroke-only` | Wireframe with ghost fill at 30% alpha | ~11% |
+| `double-stroke` | Outer stroke at 2× width + inner stroke in fill color | ~11% |
+| `dashed` | Dashed outline (5% size dash, 3% gap) | ~11% |
+| `watercolor` | 3-4 slightly offset passes at low opacity for bleed effect | ~11% |
+| `hatched` | Cross-hatch texture fill clipped to shape boundary | ~11% |
+| `incomplete` | Only 60-85% of outline drawn via dash patterns | ~11% |
 
 70% of shapes in a layer use the layer's dominant style; 30% pick independently. Additionally, ~15% of `fill-and-stroke` shapes are upgraded to `watercolor` for organic edge effects.
 
@@ -212,6 +254,15 @@ A dedicated noise RNG (seeded separately from the main RNG to avoid affecting sh
 - Each dot is either black or white (50/50)
 - Very low opacity (1-4%)
 - Creates subtle film-grain texture that adds organic depth
+
+## 8b. Vignette
+
+A radial gradient overlay darkens the edges of the canvas, drawing the viewer's eye toward the center:
+
+- Strength varies by hash: 25-45% maximum edge darkening
+- The vignette begins fading at 60% of the canvas radius from center
+- Applied after noise but before connecting curves, so the curves remain visible at edges
+- Creates a natural "spotlight" effect that makes compositions feel more focused and photographic
 
 ## 9. Organic Connecting Curves
 
