@@ -26,14 +26,15 @@ Hash String
        0c. Shape Palette (curated via affinity graph)
        0d. Color Grade (hue + intensity for final tone)
        0e. Light Direction (consistent shadow angle)
+       0f. Palette Evolution Direction (±20° hue drift across layers)
        1.  Background Layer (7 styles: radial, linear, solid, multi-stop)
            └─ Gradient Mesh Overlay (3-4 radial color control points)
        1a. Background Luminance → contrast enforcement threshold
        1b. Layered Background (archetype-coherent shapes + concentric rings)
        1c. Background Pattern Layer (dot grid / diagonal lines / tessellation)
-       2.  Composition Mode Selection (6 modes including golden-spiral)
+       2.  Composition Mode Selection (archetype-aware, 6 modes including golden-spiral)
        2b. Symmetry Mode Selection (none / bilateral / quad)
-       3.  Focal Points (rule-of-thirds biased) + Void Zones
+       3.  Focal Points (rule-of-thirds biased) + Void Zones (archetype-aware density)
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
        4.  Flow Field Initialization (simplex noise FBM)
        4a. Noise Size Modulation (terrain-like size variation from noise field)
@@ -54,26 +55,27 @@ Hash String
        │   ├─ Shadow & Highlight (drop shadow + specular highlight per shape)
        │   ├─ Organic Edges (~15% watercolor bleed)
        │   ├─ Edge Erosion (watercolor + hand-drawn styles get irregular boundary bites)
-       │   ├─ 5a. Tangent Placement (~25% nudge toward nearest shape edge)
+       │   ├─ 5a. Tangent Placement (~25% nudge toward nearest shape edge, spatial grid lookup)
        │   ├─ 5b. Shape Mirroring (~40% of basic shapes get reflected copies)
        │   ├─ 5c. Size Echo (~20% of large shapes spawn trailing copies)
        │   ├─ 5d. Recursive Nesting (~15% of large shapes, palette-aware)
-       │   └─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
-       5f. Layered Masking / Cutout Portals (~18% of images)
-       6.  Flow-Line Pass (variable color, pressure, branching)
+       │   ├─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
+       │   └─ 5f. Rhythm Placement (~12% of medium-large shapes, geometric progressions)
+       5g. Layered Masking / Cutout Portals (~18% of images)
+       6.  Flow-Line Pass (variable color, pressure, branching, void-aware)
        6b. Motion/Energy Lines (directional bursts from shapes)
        6c. Layered Transparency / Glazing (~20% of shapes get multi-pass redraws)
        7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
-       8.  Noise Texture Overlay
-       9.  Vignette (radial edge darkening)
-       10. Organic Connecting Curves
+       8.  Noise Texture Overlay (batched ImageData buffer)
+       9.  Vignette (palette-tinted radial edge darkening)
+       10. Organic Connecting Curves (proximity-aware)
        11. Post-Processing
            ├─ Color Grading (unified tone overlay)
            ├─ Chromatic Aberration (neon/cosmic/ethereal only)
            ├─ Bloom (neon/cosmic only)
            └─ Gradient Map (~35% chance, luminance-mapped two-color overlay)
        11b. Generative Borders (archetype-driven decorative frames)
-       12. Signature Mark (deterministic geometric chop mark)
+       12. Signature Mark (density-aware placement, deterministic geometric chop mark)
 ```
 
 ## 1. Deterministic RNG
@@ -116,6 +118,7 @@ Each archetype controls:
 | `heroShape` | Whether to draw a dominant focal shape |
 | `glowMultiplier` | Glow probability scaling (0 = none, 3 = heavy) |
 | `sizePower` | Size distribution curve (0.5 = uniform, 2.8 = many tiny) |
+| `preferredCompositions` | Weighted composition mode selection (e.g., radial, golden-spiral) |
 
 ### The 17 Archetypes
 
@@ -155,7 +158,7 @@ Each archetype controls:
 
 - **Blend ratio:** 25–50% (the secondary archetype never dominates)
 - **Numeric parameters** (`gridSize`, `layers`, `baseOpacity`, `minShapeSize`, etc.) are linearly interpolated between the two archetypes
-- **Style arrays** (`preferredStyles`) are merged — the primary's styles come first, then any unique styles from the secondary
+- **Style arrays** (`preferredStyles`, `preferredCompositions`) are merged — the primary's entries come first, then any unique entries from the secondary
 - **Categorical parameters** (`backgroundStyle`, `paletteMode`) use the primary's value when the blend ratio is below 50%, otherwise the secondary's
 - **Boolean parameters** (`heroShape`) use the primary's value
 
@@ -192,9 +195,9 @@ Color generation uses the `color-scheme` library seeded from the hash, then appl
 
 After generating the raw palette, colors are organized into a **hierarchy** with weighted selection:
 
-- **Dominant (60%)** — the most-used color, selected as the palette entry closest to the average hue
-- **Secondary (25%)** — the color most distant from the dominant
-- **Accent (15%)** — a remaining color for visual punctuation
+- **Dominant (60%)** — the most-used color, selected as the palette entry with the highest **chroma** (saturation × lightness vibrancy, where vibrancy peaks at L=0.5). This picks the most visually prominent color rather than the one closest to the average hue.
+- **Accent (15%)** — the color most distant from the dominant in hue, providing maximum contrast for visual punctuation
+- **Secondary (25%)** — the remaining color with the highest saturation
 
 `pickHierarchyColor(hierarchy, rng)` rolls against these weights so compositions naturally converge on a dominant tone without being monotonous.
 
@@ -328,7 +331,7 @@ The average luminance of the two background colors is computed and stored. This 
 
 ### Composition Modes
 
-Each image uses one of 5 composition strategies for shape placement:
+Each image uses one of 6 composition strategies for shape placement. Composition mode selection is **archetype-aware**: each archetype declares a `preferredCompositions` array, and selection is 70% from the archetype's preferred modes / 30% from the full set. This ensures archetypes get compositions that suit their character while preserving variety.
 
 | Mode | Behavior |
 | ---- | -------- |
@@ -358,7 +361,12 @@ Symmetry is applied by drawing the canvas image onto itself with `scale(-1, 1)` 
 
 1–2 **focal points** are placed with 70% bias toward rule-of-thirds intersections (the remaining 30% are placed randomly within the central 60% of the canvas). Each focal point has a `strength` (0.3–0.7) that pulls nearby shapes toward it via `applyFocalBias`.
 
-1–2 **void zones** are placed randomly. Shapes landing inside a void zone have an 85% chance of being skipped, creating breathing room in the composition.
+**Void zones** are placed with **archetype-aware logic**:
+- **Dense archetypes** (gridSize ≥ 8, e.g., `dense-chaotic`, `cosmic`, `op-art`, `stipple-portrait`): **0 void zones** — these archetypes thrive on density, and voids would undermine their character
+- **Minimal archetypes** (gridSize ≤ 3, e.g., `minimal-spacious`, `bold-graphic`, `watercolor-wash`): 1–2 void zones placed at **golden-ratio positions** (1/φ and 1−1/φ along each axis, with slight jitter) for intentional, harmonious negative space
+- **Other archetypes**: 1–2 void zones placed randomly within the central 70% of the canvas
+
+Shapes landing inside a void zone have an 85% chance of being skipped, creating breathing room in the composition.
 
 ### Void Zone Decoration
 
@@ -410,7 +418,7 @@ For each shape in a layer:
 
 1. **Position:** Composition mode generates a candidate position, then `applyFocalBias` pulls it toward the nearest focal point
 2. **Void check:** 85% skip chance if inside a void zone
-3. **Density check:** If local density exceeds 15% of `shapesPerLayer`, 60% skip chance
+3. **Density check:** Uses the **spatial hash grid** (see Performance section) for O(1) lookups — if local density exceeds 15% of `shapesPerLayer`, 60% skip chance
 4. **Size:** Power-curve distribution controlled by `archetype.sizePower` — higher values produce more small shapes
 5. **Shape selection:** `pickShapeFromPalette` with size-constraint filtering
 6. **Rotation:** Flow-field angle in flow-field mode (±15° jitter); random otherwise
@@ -435,7 +443,7 @@ Every shape receives lighting effects based on a single consistent light directi
 **Specular Highlight:**
 - Position: 15% of shape size along the light direction from center
 - Radius: 35% of shape size
-- Gradient: white at 18% opacity → 5% → 0% (radial falloff)
+- Gradient: **tinted** highlight at 18% opacity → 5% → 0% (radial falloff). The highlight color blends 15% of the shape's fill color RGB with 85% white, producing warm or cool highlights that match the shape rather than pure white spots.
 - Composited via `soft-light` to interact naturally with the shape's fill color
 - Only applied to shapes larger than 15px (tiny shapes don't benefit)
 
@@ -443,7 +451,7 @@ The combination creates a subtle 3D effect where shapes appear to float above th
 
 ### 5a. Tangent Placement
 
-~25% of shapes are nudged toward the nearest previously-placed shape so their edges "kiss." The algorithm finds the nearest shape, computes the target distance (sum of half-sizes), and repositions the current shape along the angle between them. This creates organic clustering where shapes feel intentionally arranged rather than randomly scattered.
+~25% of shapes are nudged toward the nearest previously-placed shape so their edges "kiss." The algorithm uses the **spatial hash grid** for O(1) nearest-neighbor lookup (searching within 3× `adjustedMaxSize`), computes the target distance (sum of half-sizes), and repositions the current shape along the angle between them. This creates organic clustering where shapes feel intentionally arranged rather than randomly scattered.
 
 ### 5b. Shape Mirroring
 
@@ -480,7 +488,20 @@ The mirror copy is drawn at 70% opacity and 95% size (decreasing for radial-4), 
 
 Each member shape uses hierarchy colors with HSL jitter and affinity-aware render styles. Members that fall outside the canvas bounds are skipped.
 
-### 5f. Layered Masking / Cutout Portals
+### 5f. Rhythm Placement
+
+~12% of shapes larger than 25% of `adjustedMaxSize` spawn a **rhythmic sequence** — a deliberate geometric progression of 3–6 copies of the same shape along a line:
+
+- **Direction:** Random angle from the parent shape
+- **Spacing:** 80–140% of the parent shape's size between each copy
+- **Size decay:** Each copy is 70–85% the size of the previous one, creating a diminishing progression
+- **Rotation:** Progressive rotation (+12° per step) adds a gentle twist to the sequence
+- **Void awareness:** The sequence stops if a copy would land inside a void zone
+- **Bounds check:** Copies that would fall outside the canvas are skipped, ending the sequence
+
+Rhythm placement creates intentional visual patterns — like a trail of stepping stones or a musical crescendo rendered in geometry. The consistent shape and progressive scaling give the eye a clear path to follow.
+
+### 5g. Layered Masking / Cutout Portals
 
 ~18% of images receive 1–3 **portal cutouts** — shape-sized windows that paint over the foreground layers with a background wash, creating a "peek through" depth effect.
 
@@ -587,6 +608,7 @@ Flow lines follow a **simplex noise** vector field defined by `flowAngle(x, y)`.
 Each flow line:
 - Starts at a random position
 - Takes 30–70 steps along the flow field (±0.3 radians jitter per step)
+- **Void zone awareness:** Segments that pass through void zones are skipped (the line continues on the other side, maintaining continuity without drawing through negative space)
 - **Variable color:** Interpolates between two hierarchy colors along the stroke length
 - **Pressure simulation:** Line width oscillates sinusoidally (frequency 2–6 cycles, amplitude ±40%) to simulate pen pressure
 - **Taper:** Width and opacity decrease toward the end (80% taper over the stroke length)
@@ -600,13 +622,21 @@ After all shapes, flow lines, and symmetry mirroring:
 
 Deterministic noise (separate RNG seeded from hash + salt 777) scatters single-pixel dots across the canvas. Density scales with canvas area (~1 dot per 800px²). Each dot is black or white at 1–4% opacity, adding subtle film grain.
 
+The noise is applied via **ImageData buffer manipulation** — reading the canvas pixels into a typed array, alpha-blending each noise dot directly in memory, then writing the buffer back with `putImageData`. This is significantly faster than thousands of individual `fillRect` calls. A try/catch fallback uses the old per-pixel `fillRect` approach for environments where `getImageData` isn't available (e.g., some OffscreenCanvas implementations).
+
 ### Vignette
 
-A radial gradient darkens the edges: transparent at center, ramping to 25–45% black at the corners. This draws the eye inward toward the focal points.
+A radial gradient darkens the edges: transparent at center, ramping to 25–45% opacity at the corners. The vignette color is **palette-tinted** based on background luminance:
+- **Light backgrounds** (luminance > 0.5): warm sepia tone `rgba(80,60,30,...)` — avoids the harsh look of black vignette on light art
+- **Dark backgrounds**: classic black `rgba(0,0,0,...)` — the traditional approach
+
+This draws the eye inward toward the focal points while maintaining tonal coherence with the background.
 
 ### Organic Connecting Curves
 
 Quadratic Bézier curves connect random pairs of placed shapes. The control point is offset perpendicular to the line between shapes by up to 40% of their distance, creating organic arcs. Count scales with canvas area (~8 per megapixel). Drawn at 6–16% opacity using hierarchy colors.
+
+Connections are **proximity-aware** — only shapes within 20% of the canvas diagonal are connected. Distant pairs are skipped, preventing long straight-ish lines that cross the entire composition and break the organic feel.
 
 ### Color Grading
 
@@ -647,15 +677,37 @@ Border elements use hierarchy colors at very low opacity (10–25%) so they fram
 
 ## 13. Signature Mark
 
-The final rendering step places a small deterministic **chop mark** (inspired by East Asian seal stamps) in the bottom-right corner of the canvas:
+The final rendering step places a small deterministic **chop mark** (inspired by East Asian seal stamps) in the **least-dense corner** of the canvas:
 
 - **RNG isolation:** Uses a separate RNG seeded with a salt of 42, so the signature is independent of all other rendering decisions
-- **Position:** Bottom-right corner with a small margin (3% of canvas size)
+- **Position:** The spatial hash grid evaluates all 4 corners (top-left, top-right, bottom-left, bottom-right) via `countNear()` within a 5× signature-size radius. The corner with the lowest shape density is selected. Falls back to bottom-right if all corners are equally empty.
 - **Size:** 1.5–2.5% of the shorter canvas dimension
 - **Structure:**
   1. Outer circle ring (stroke-only) at 12–20% opacity
-  2. 2–4 inner lines crossing the circle at unique angles derived from the hash, creating a distinctive geometric pattern
+  2. 4–7 inner lines crossing the circle at unique angles derived from the hash, creating a distinctive geometric pattern
   3. Center dot at slightly higher opacity
 - **Color:** Uses the accent color from the hierarchy at very low opacity so it's visible but never distracting
 
 The signature is unique per hash (different inner line patterns) but always recognizable as a chop mark, giving each generated image a subtle artist's stamp.
+
+## 14. Performance
+
+Several hot paths in the rendering pipeline are optimized for throughput:
+
+### Spatial Hash Grid
+
+A `SpatialGrid` class provides O(1) amortized density checks and nearest-neighbor lookups, replacing the original O(n²) linear scans over all placed shapes. The grid cell size matches the density check radius (~8% of the shorter canvas dimension). Three operations are used throughout the pipeline:
+
+- `insert(item)` — adds a shape to the grid cell containing its position
+- `countNear(x, y, radius)` — counts shapes within a radius by scanning only the relevant grid cells
+- `findNearest(x, y, searchRadius)` — returns the closest shape within a search radius
+
+The grid is used for: density-based shape skipping (step 5), tangent placement nearest-neighbor lookup (step 5a), and signature corner selection (step 12).
+
+### Batched Background Patterns
+
+The three background pattern types (dot grid, diagonal lines, hexagonal tessellation) batch all geometry into a single `beginPath()` / `fill()` or `stroke()` call instead of issuing per-element draw commands. For a 2048×2048 canvas with a dot grid at 30px spacing, this reduces ~4,600 individual `arc()`+`fill()` calls to a single batched path.
+
+### ImageData Noise Overlay
+
+The noise texture pass reads the canvas into an `ImageData` buffer, alpha-blends each noise dot directly in the typed array, then writes the buffer back with a single `putImageData()`. This avoids thousands of individual `fillRect()` calls and the associated canvas state changes (globalAlpha, fillStyle). A try/catch fallback preserves compatibility with environments that don't support `getImageData`.
