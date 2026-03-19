@@ -33,7 +33,9 @@ export type RenderStyle =
   | "stroke-only"      // wireframe
   | "double-stroke"    // inner + outer stroke
   | "dashed"           // dashed outline
-  | "watercolor";      // multiple offset passes at low opacity
+  | "watercolor"       // multiple offset passes at low opacity
+  | "hatched"          // cross-hatch texture fill
+  | "incomplete";      // draw only 60-85% of the stroke path
 
 const RENDER_STYLES: RenderStyle[] = [
   "fill-and-stroke",
@@ -43,6 +45,8 @@ const RENDER_STYLES: RenderStyle[] = [
   "double-stroke",
   "dashed",
   "watercolor",
+  "hatched",
+  "incomplete",
 ];
 
 export function pickRenderStyle(rng: () => number): RenderStyle {
@@ -164,6 +168,76 @@ function applyRenderStyle(
       ctx.globalAlpha *= 0.4;
       ctx.stroke();
       ctx.globalAlpha /= 0.4;
+      break;
+    }
+
+    case "hatched": {
+      // Fill normally at reduced opacity, then overlay cross-hatch lines
+      const savedAlphaH = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaH * 0.3;
+      ctx.fill();
+      ctx.globalAlpha = savedAlphaH;
+
+      // Clip to shape, then draw hatch lines
+      ctx.save();
+      ctx.clip();
+      const hatchSpacing = Math.max(3, size * 0.06);
+      const hatchAngle = rng ? rng() * Math.PI : Math.PI / 4;
+      ctx.lineWidth = Math.max(0.5, strokeWidth * 0.4);
+      ctx.globalAlpha = savedAlphaH * 0.6;
+
+      // Draw parallel lines across the bounding box
+      const extent = size * 0.8;
+      const cos = Math.cos(hatchAngle);
+      const sin = Math.sin(hatchAngle);
+      for (let d = -extent; d <= extent; d += hatchSpacing) {
+        ctx.beginPath();
+        ctx.moveTo(d * cos - extent * sin, d * sin + extent * cos);
+        ctx.lineTo(d * cos + extent * sin, d * sin - extent * cos);
+        ctx.stroke();
+      }
+      // Second pass at perpendicular angle for cross-hatch (~50% chance)
+      if (!rng || rng() < 0.5) {
+        const crossAngle = hatchAngle + Math.PI / 2;
+        const cos2 = Math.cos(crossAngle);
+        const sin2 = Math.sin(crossAngle);
+        ctx.globalAlpha = savedAlphaH * 0.35;
+        for (let d = -extent; d <= extent; d += hatchSpacing * 1.4) {
+          ctx.beginPath();
+          ctx.moveTo(d * cos2 - extent * sin2, d * sin2 + extent * cos2);
+          ctx.lineTo(d * cos2 + extent * sin2, d * sin2 - extent * cos2);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      ctx.globalAlpha = savedAlphaH;
+      // Outline stroke
+      ctx.globalAlpha *= 0.5;
+      ctx.stroke();
+      ctx.globalAlpha /= 0.5;
+      break;
+    }
+
+    case "incomplete": {
+      // Draw the fill at low opacity, then a dashed stroke that
+      // simulates drawing only part of the outline
+      const savedAlphaI = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlphaI * 0.25;
+      ctx.fill();
+      ctx.globalAlpha = savedAlphaI;
+
+      // Use a long dash pattern where gaps create the "incomplete" look
+      const completeness = rng ? 0.6 + rng() * 0.25 : 0.7; // 60-85%
+      const segLen = size * 0.12;
+      const gapLen = segLen * ((1 - completeness) / completeness);
+      ctx.setLineDash([segLen, gapLen]);
+      // Offset the dash so each shape starts at a different point
+      ctx.lineDashOffset = rng ? rng() * segLen * 4 : 0;
+      // Slightly thicker stroke for hand-drawn feel
+      ctx.lineWidth = strokeWidth * 1.3;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
       break;
     }
 

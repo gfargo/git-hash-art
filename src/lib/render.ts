@@ -22,6 +22,7 @@ import {
     hexWithAlpha,
     jitterColor,
     desaturate,
+    shiftTemperature,
 } from "./canvas/colors";
 import {
     enhanceShapeGeneration,
@@ -234,6 +235,10 @@ export function renderHashArt(
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColors();
   const [bgStart, bgEnd] = colorScheme.getBackgroundColors();
+  const tempMode = colorScheme.getTemperatureMode();
+  // Foreground shapes get the opposite temperature for contrast
+  const fgTempTarget: "warm" | "cool" | null =
+    tempMode === "warm-bg" ? "cool" : tempMode === "cool-bg" ? "warm" : null;
 
   const shapeNames = Object.keys(shapes);
   const scaleFactor = Math.min(width, height) / 1024;
@@ -284,15 +289,41 @@ export function renderHashArt(
   const compositionMode =
     COMPOSITION_MODES[Math.floor(rng() * COMPOSITION_MODES.length)];
 
+  // ── 2b. Symmetry mode — ~25% of hashes trigger mirroring ──────
+  type SymmetryMode = "none" | "bilateral-x" | "bilateral-y" | "quad";
+  const symRoll = rng();
+  const symmetryMode: SymmetryMode =
+    symRoll < 0.10 ? "bilateral-x" :
+    symRoll < 0.20 ? "bilateral-y" :
+    symRoll < 0.25 ? "quad" : "none";
+
   // ── 3. Focal points + void zones ───────────────────────────────
+  // Rule-of-thirds intersection points for intentional composition
+  const THIRDS_POINTS = [
+    { x: 1 / 3, y: 1 / 3 },
+    { x: 2 / 3, y: 1 / 3 },
+    { x: 1 / 3, y: 2 / 3 },
+    { x: 2 / 3, y: 2 / 3 },
+  ];
   const numFocal = 1 + Math.floor(rng() * 2);
   const focalPoints: Array<{ x: number; y: number; strength: number }> = [];
   for (let f = 0; f < numFocal; f++) {
-    focalPoints.push({
-      x: width * (0.2 + rng() * 0.6),
-      y: height * (0.2 + rng() * 0.6),
-      strength: 0.3 + rng() * 0.4,
-    });
+    // 70% chance to snap to a rule-of-thirds point, 30% free placement
+    if (rng() < 0.7) {
+      const tp = THIRDS_POINTS[Math.floor(rng() * THIRDS_POINTS.length)];
+      // Small jitter around the thirds point so it's not robotic
+      focalPoints.push({
+        x: width * (tp.x + (rng() - 0.5) * 0.08),
+        y: height * (tp.y + (rng() - 0.5) * 0.08),
+        strength: 0.3 + rng() * 0.4,
+      });
+    } else {
+      focalPoints.push({
+        x: width * (0.2 + rng() * 0.6),
+        y: height * (0.2 + rng() * 0.6),
+        strength: 0.3 + rng() * 0.4,
+      });
+    }
   }
 
   // Feature E: 1-2 void zones where shapes are sparse (negative space)
@@ -332,8 +363,47 @@ export function renderHashArt(
     );
   }
 
-  // ── 5. Shape layers ────────────────────────────────────────────
+  // Track all placed shapes for density checks and connecting curves
   const shapePositions: Array<{ x: number; y: number; size: number }> = [];
+
+  // ── 4b. Hero shape — a dominant focal element ───────────────────
+  // ~60% of images get a hero shape anchored at the primary focal point.
+  // It's a large sacred/complex shape that gives the composition a center of gravity.
+  if (rng() < 0.6) {
+    const heroFocal = focalPoints[0];
+    const heroPool = [...SACRED_SHAPES, "fibonacciSpiral", "merkaba", "fractal"];
+    const heroShape =
+      heroPool.filter((s) => shapeNames.includes(s))[
+        Math.floor(rng() * heroPool.filter((s) => shapeNames.includes(s)).length)
+      ] || shapeNames[Math.floor(rng() * shapeNames.length)];
+
+    const heroSize = adjustedMaxSize * (0.8 + rng() * 0.5);
+    const heroRotation = rng() * 360;
+    const heroFill = hexWithAlpha(
+      jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05),
+      0.15 + rng() * 0.2,
+    );
+    const heroStroke = jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.05);
+
+    ctx.globalAlpha = 0.5 + rng() * 0.2;
+    enhanceShapeGeneration(ctx, heroShape, heroFocal.x, heroFocal.y, {
+      fillColor: heroFill,
+      strokeColor: heroStroke,
+      strokeWidth: (1.5 + rng() * 2) * scaleFactor,
+      size: heroSize,
+      rotation: heroRotation,
+      proportionType: "GOLDEN_RATIO",
+      glowRadius: (12 + rng() * 20) * scaleFactor,
+      glowColor: hexWithAlpha(heroStroke, 0.4),
+      gradientFillEnd: jitterColor(colors[Math.floor(rng() * colors.length)], rng, 0.1),
+      renderStyle: rng() < 0.4 ? "watercolor" : "fill-and-stroke",
+      rng,
+    });
+
+    shapePositions.push({ x: heroFocal.x, y: heroFocal.y, size: heroSize });
+  }
+
+  // ── 5. Shape layers ────────────────────────────────────────────
   const densityCheckRadius = Math.min(width, height) * 0.08;
   const maxLocalDensity = Math.ceil(finalConfig.shapesPerLayer * 0.15);
 
@@ -400,6 +470,11 @@ export function renderHashArt(
       // Feature D: desaturate colors on later layers for depth
       if (atmosphericDesat > 0) {
         fillBase = desaturate(fillBase, atmosphericDesat);
+      }
+
+      // Temperature contrast: shift foreground shapes opposite to background
+      if (fgTempTarget) {
+        fillBase = shiftTemperature(fillBase, fgTempTarget, 0.15 + layerRatio * 0.1);
       }
 
       const fillColor = jitterColor(fillBase, rng, 0.06);
@@ -534,6 +609,32 @@ export function renderHashArt(
     }
   }
 
+  // ── 6b. Apply symmetry mirroring ─────────────────────────────────
+  // Mirror the rendered content (shapes + flow lines) before post-processing.
+  // Uses ctx.canvas which is available in both Node (@napi-rs/canvas) and browsers.
+  if (symmetryMode !== "none") {
+    const canvas = ctx.canvas;
+    ctx.save();
+    if (symmetryMode === "bilateral-x" || symmetryMode === "quad") {
+      // Mirror left half onto right half
+      ctx.save();
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      // Draw the left half (0 to cx) onto the mirrored right side
+      ctx.drawImage(canvas, 0, 0, Math.ceil(cx), height, 0, 0, Math.ceil(cx), height);
+      ctx.restore();
+    }
+    if (symmetryMode === "bilateral-y" || symmetryMode === "quad") {
+      // Mirror top half onto bottom half
+      ctx.save();
+      ctx.translate(0, height);
+      ctx.scale(1, -1);
+      ctx.drawImage(canvas, 0, 0, width, Math.ceil(cy), 0, 0, width, Math.ceil(cy));
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   // ── 7. Noise texture overlay ───────────────────────────────────
   const noiseRng = createRng(seedFromHash(gitHash, 777));
   const noiseDensity = Math.floor((width * height) / 800);
@@ -547,7 +648,17 @@ export function renderHashArt(
     ctx.fillRect(nx, ny, 1 * scaleFactor, 1 * scaleFactor);
   }
 
-  // ── 8. Organic connecting curves ───────────────────────────────
+  // ── 8. Vignette — darken edges to draw the eye inward ───────────
+  ctx.globalAlpha = 1;
+  const vignetteStrength = 0.25 + rng() * 0.2; // 25-45% edge darkening
+  const vigGrad = ctx.createRadialGradient(cx, cy, Math.min(width, height) * 0.3, cx, cy, bgRadius);
+  vigGrad.addColorStop(0, "rgba(0,0,0,0)");
+  vigGrad.addColorStop(0.6, "rgba(0,0,0,0)");
+  vigGrad.addColorStop(1, `rgba(0,0,0,${vignetteStrength.toFixed(3)})`);
+  ctx.fillStyle = vigGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  // ── 9. Organic connecting curves ───────────────────────────────
   if (shapePositions.length > 1) {
     const numCurves = Math.floor((8 * (width * height)) / (1024 * 1024));
     ctx.lineWidth = 0.8 * scaleFactor;
