@@ -12,7 +12,7 @@ const COLOR_VARIATIONS = [
   "hard",
   "pastel",
   "light",
-  "dark",
+  "pale",
   "default",
 ] as const;
 type ColorVariation = (typeof COLOR_VARIATIONS)[number];
@@ -77,7 +77,7 @@ export class SacredColorScheme {
     const complementaryHue = (this.seed + 180) % 360;
     // Complementary uses a contrasting variation for tension
     const compVariation =
-      this.variation === "soft" ? "hard" : this.variation === "dark" ? "light" : this.variation;
+      this.variation === "soft" ? "hard" : this.variation === "pale" ? "light" : this.variation;
     const scheme = new ColorScheme();
     return scheme
       .from_hue(complementaryHue)

@@ -65,7 +65,7 @@ The hash deterministically selects both a **scheme type** and a **color variatio
 | `hard` | High saturation, vivid |
 | `pastel` | Light, airy |
 | `light` | Bright, open |
-| `dark` | Deep, moody |
+| `pale` | Washed out, ethereal |
 | `default` | Balanced, neutral |
 
 Scheme types also vary: `analogic`, `mono`, `contrast`, `triade`, `tetrade`. The complementary palette uses a contrasting variation (e.g., if base is `soft`, complementary uses `hard`) to create intentional color tension.
