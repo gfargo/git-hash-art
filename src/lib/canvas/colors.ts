@@ -125,3 +125,44 @@ export class SacredColorScheme {
     return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
   }
 }
+
+// ── Standalone color utilities ──────────────────────────────────────
+
+/** Parse a hex color (#RRGGBB) into [r, g, b] 0-255. */
+function hexToRgb(hex: string): [number, number, number] {
+  const c = hex.replace("#", "");
+  return [
+    parseInt(c.substring(0, 2), 16),
+    parseInt(c.substring(2, 4), 16),
+    parseInt(c.substring(4, 6), 16),
+  ];
+}
+
+/** Format [r, g, b] back to #RRGGBB. */
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${clamp(r).toString(16).padStart(2, "0")}${clamp(g).toString(16).padStart(2, "0")}${clamp(b).toString(16).padStart(2, "0")}`;
+}
+
+/**
+ * Return a hex color with an alpha component as an rgba() CSS string.
+ * `alpha` is 0-1.
+ */
+export function hexWithAlpha(hex: string, alpha: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+}
+
+/**
+ * Apply slight hue/saturation/lightness jitter to a hex color.
+ * `rng` should return a float in [0,1). `amount` controls intensity (0-1, default 0.1).
+ */
+export function jitterColor(
+  hex: string,
+  rng: () => number,
+  amount = 0.1,
+): string {
+  const [r, g, b] = hexToRgb(hex);
+  const jit = () => (rng() - 0.5) * 2 * amount * 255;
+  return rgbToHex(r + jit(), g + jit(), b + jit());
+}
