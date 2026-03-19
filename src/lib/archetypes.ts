@@ -27,7 +27,10 @@ export type PaletteMode =
   | "neon"          // high saturation on dark
   | "pastel-light"  // soft pastels on light background
   | "earth"         // muted warm naturals
-  | "high-contrast"; // black + white + one accent
+  | "high-contrast" // black + white + one accent
+  | "split-complementary" // base hue + two flanking complements
+  | "analogous-accent"    // tight analogous cluster + one distant accent
+  | "limited-palette";    // 3 colors only, risograph-print feel
 
 // ── Archetype definition ────────────────────────────────────────────
 

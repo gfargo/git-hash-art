@@ -194,6 +194,45 @@ export class SacredColorScheme {
         const accent = hslToHex(baseHue, 0.9, 0.5);
         return ["#111111", "#eeeeee", accent, hslToHex(baseHue, 0.7, 0.35)];
       }
+      case "split-complementary": {
+        // Base hue + two colors flanking the complement (±30°)
+        const comp = (baseHue + 180) % 360;
+        const split1 = (comp - 30 + 360) % 360;
+        const split2 = (comp + 30) % 360;
+        const sat = 0.55 + this.rng() * 0.25;
+        return [
+          hslToHex(baseHue, sat, 0.5),
+          hslToHex(baseHue, sat * 0.8, 0.65),
+          hslToHex(split1, sat, 0.5),
+          hslToHex(split2, sat, 0.5),
+          hslToHex(split1, sat * 0.7, 0.7),
+        ];
+      }
+      case "analogous-accent": {
+        // Tight cluster of 3 analogous hues + 1 distant accent
+        const step = 15 + this.rng() * 20; // 15-35° apart
+        const h1 = (baseHue - step + 360) % 360;
+        const h2 = (baseHue + step) % 360;
+        const accentHue = (baseHue + 150 + this.rng() * 60) % 360;
+        const sat = 0.5 + this.rng() * 0.3;
+        return [
+          hslToHex(baseHue, sat, 0.5),
+          hslToHex(h1, sat, 0.55),
+          hslToHex(h2, sat, 0.45),
+          hslToHex(accentHue, sat + 0.15, 0.5),
+        ];
+      }
+      case "limited-palette": {
+        // Only 3 colors — like a risograph print
+        const h2 = (baseHue + 120 + this.rng() * 40) % 360;
+        const h3 = (baseHue + 220 + this.rng() * 40) % 360;
+        const sat = 0.6 + this.rng() * 0.2;
+        return [
+          hslToHex(baseHue, sat, 0.5),
+          hslToHex(h2, sat, 0.5),
+          hslToHex(h3, sat * 0.9, 0.55),
+        ];
+      }
       case "harmonious":
       default:
         return this.getColors();
@@ -210,6 +249,11 @@ export class SacredColorScheme {
       case "high-contrast":
       case "monochrome-ink":
         return ["#f5f5f0", "#e8e8e0"];
+      case "split-complementary":
+      case "analogous-accent":
+        return this.getBackgroundColors();
+      case "limited-palette":
+        return [hslToHex(this.seed % 360, 0.08, 0.94), hslToHex((this.seed + 20) % 360, 0.06, 0.90)];
       case "neon":
         return ["#0a0a12", "#050510"];
       case "earth":
@@ -533,5 +577,6 @@ export function evolveHierarchy(
     dominant: hueRotate(base.dominant, shift),
     secondary: hueRotate(base.secondary, shift * 0.7),
     accent: hueRotate(base.accent, shift * 0.5),
+    all: base.all.map(c => hueRotate(c, shift * 0.6)),
   };
 }

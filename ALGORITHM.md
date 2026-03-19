@@ -31,11 +31,12 @@ Hash String
        1a. Background Luminance → contrast enforcement threshold
        1b. Layered Background (archetype-coherent shapes + concentric rings)
        1c. Background Pattern Layer (dot grid / diagonal lines / tessellation)
-       2.  Composition Mode Selection
+       2.  Composition Mode Selection (6 modes including golden-spiral)
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
-       4.  Flow Field Initialization
+       4.  Flow Field Initialization (simplex noise FBM)
+       4a. Noise Size Modulation (terrain-like size variation from noise field)
        4b. Hero Shape (palette-aware, affinity-styled)
        5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
@@ -56,10 +57,10 @@ Hash String
        │   ├─ 5c. Size Echo (~20% of large shapes spawn trailing copies)
        │   ├─ 5d. Recursive Nesting (~15% of large shapes, palette-aware)
        │   └─ 5e. Shape Constellations (~12% of large shapes, pre-composed groups)
+       5f. Layered Masking / Cutout Portals (~18% of images)
        6.  Flow-Line Pass (variable color, pressure, branching)
        6b. Motion/Energy Lines (directional bursts from shapes)
        6c. Layered Transparency / Glazing (~20% of shapes get multi-pass redraws)
-       7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
        8.  Noise Texture Overlay
        9.  Vignette (radial edge darkening)
@@ -81,6 +82,16 @@ rng() → float in [0, 1)
 ```
 
 The old approach extracted 2-char hex pairs from the hash (only ~20 unique values in a 40-char hash). Mulberry32 produces a full 32-bit uniform stream from any seed, eliminating correlation artifacts.
+
+### Simplex Noise Field
+
+In addition to the scalar RNG, the pipeline creates a **2D simplex noise** function seeded from the hash (with a separate salt so it's independent of the main RNG stream). This produces smooth, organic spatial variation across the canvas.
+
+The raw simplex noise is layered into **Fractal Brownian Motion (FBM)** with 3 octaves (lacunarity 2.0, gain 0.5), which adds multi-scale detail — large sweeping gradients overlaid with finer turbulence.
+
+The noise field drives two systems:
+- **Flow field angles:** `flowAngle(x, y)` samples the FBM at each position, producing organic, non-repeating directional fields. This replaces the old sinusoidal field which produced visible periodic patterns.
+- **Size modulation:** `noiseSizeModulation(x, y)` samples the raw simplex noise to create terrain-like size variation (0.7×–1.3×). Shapes in "high noise" regions are larger; shapes in "low noise" regions are smaller. This creates natural density clusters without explicit clustering logic.
 
 ## 2. Archetype System
 
@@ -161,6 +172,17 @@ Color generation uses the `color-scheme` library seeded from the hash, then appl
 | pastel-light | Soft pastels on light backgrounds |
 | earth | Muted warm naturals |
 | high-contrast | Black + white + one accent color |
+| split-complementary | Base hue + two colors flanking the complement (±30°) |
+| analogous-accent | Tight cluster of 3 analogous hues + 1 distant accent |
+| limited-palette | Only 3 colors — risograph-print feel |
+
+### New Harmony Mode Details
+
+**split-complementary** — Instead of a single complement (180° opposite), this mode uses two colors at ±30° from the complement. This creates strong contrast like complementary schemes but with more nuance and less visual tension. The base hue gets a tint variant for 5 total colors.
+
+**analogous-accent** — Three hues within a tight 30–70° arc (15–35° step between each) create a harmonious, low-contrast base. A single accent color at 150–210° away provides a pop of contrast. This produces compositions that feel cohesive with one surprising element.
+
+**limited-palette** — Only 3 colors total, spaced roughly 120° apart with slight randomization. Mimics the look of risograph or screen-printed art where ink colors are limited. The constraint forces the hierarchy system to work harder, producing bold, graphic compositions.
 
 ### Color Hierarchy
 
@@ -311,6 +333,13 @@ Each image uses one of 5 composition strategies for shape placement:
 | grid-subdivision | Canvas divided into 3–5 cells; shapes placed within random cells |
 | clustered | 3–5 cluster centers; shapes scatter around the nearest cluster |
 | flow-field | Uniform random placement (rotation driven by flow field) |
+| golden-spiral | Shapes placed along a logarithmic golden-angle spiral from center outward |
+
+### Golden Spiral Detail
+
+The `golden-spiral` mode uses the **golden angle** (~137.5°) to space shapes around the center. Each shape's angular position is `index × goldenAngle` with slight random jitter (±0.3 radians). The radial distance uses a square-root distribution (`√(t) × maxRadius`) which ensures even area coverage — shapes don't bunch up at the center or leave gaps at the edges.
+
+This produces the same phyllotactic pattern seen in sunflower seed heads and pinecone spirals. Combined with the size power curve, it creates compositions where large shapes anchor the center and smaller shapes spiral outward in a naturally pleasing arrangement.
 
 ### Symmetry
 
@@ -427,6 +456,20 @@ The mirror copy is drawn at 70% opacity and 95% size (decreasing for radial-4), 
 
 Each member shape uses hierarchy colors with HSL jitter and affinity-aware render styles. Members that fall outside the canvas bounds are skipped.
 
+### 5f. Layered Masking / Cutout Portals
+
+~18% of images receive 1–3 **portal cutouts** — shape-sized windows that punch through the foreground layers to reveal the background beneath. This creates a layered collage effect where the composition has visible depth.
+
+The process for each portal:
+
+1. **Position:** Biased toward an existing placed shape (with slight random offset), so portals appear in visually active areas rather than empty space
+2. **Shape:** Selected from the shape palette at the portal's size fraction, so the cutout shape is palette-coherent
+3. **Border ring:** A subtle stroke outline at 108% of the portal size (15–30% opacity) frames the cutout
+4. **Cutout:** The shape is filled with `destination-out` compositing at 60–90% opacity, partially or fully erasing the foreground layers within the shape boundary
+5. **Background wash:** A tinted radial gradient (derived from the background colors with HSL jitter) is drawn behind the cutout via `destination-over`, so the portal reveals a softly colored void rather than raw canvas
+
+The partial opacity on the cutout (60–90%) means some portals are translucent windows while others are full punch-throughs, creating varied depth effects.
+
 ## 10. Render Styles
 
 Each shape is drawn using one of 15 render styles:
@@ -507,7 +550,7 @@ The watercolor style simulates wet media through 4 passes:
 
 ## 11. Flow Lines
 
-Flow lines follow a sinusoidal vector field defined by `flowAngle(x, y)`. The archetype's `flowLineMultiplier` controls count (0× = none, up to 4× = heavy).
+Flow lines follow a **simplex noise** vector field defined by `flowAngle(x, y)`. The field is generated from a seeded 2D simplex noise function layered with 3-octave Fractal Brownian Motion (FBM) for organic, non-repeating patterns. The archetype's `flowLineMultiplier` controls count (0× = none, up to 4× = heavy).
 
 Each flow line:
 - Starts at a random position
