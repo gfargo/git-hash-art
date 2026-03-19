@@ -10,6 +10,7 @@
     "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css,md}'",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css,md}'",
     "release": "release-it",
+    "test": "vitest --run",
     "test:publish": "npm publish --dry-run",
     "prepublishOnly": "yarn build"
   },
@@ -17,18 +18,61 @@
   "main": "dist/main.js",
   "module": "dist/module.js",
   "types": "dist/types.d.ts",
+  "browser": "dist/browser.js",
+  "exports": {
+    ".": {
+      "node": {
+        "require": "./dist/main.js",
+        "import": "./dist/module.js",
+        "types": "./dist/types.d.ts"
+      },
+      "browser": {
+        "import": "./dist/browser.js",
+        "types": "./dist/browser-types.d.ts"
+      },
+      "default": "./dist/module.js"
+    },
+    "./browser": {
+      "import": "./dist/browser.js",
+      "types": "./dist/browser-types.d.ts"
+    }
+  },
+  "targets": {
+    "main": {
+      "context": "node",
+      "source": "src/index.ts"
+    },
+    "module": {
+      "context": "node",
+      "source": "src/index.ts"
+    },
+    "browser": {
+      "context": "browser",
+      "source": "src/browser.ts",
+      "outputFormat": "esmodule"
+    }
+  },
   "license": "MIT",
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.97",
     "color-scheme": "^1.0.1"
   },
+  "peerDependencies": {
+    "@napi-rs/canvas": ">=0.1.97"
+  },
+  "peerDependenciesMeta": {
+    "@napi-rs/canvas": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@napi-rs/canvas": "^0.1.97",
     "@parcel/packager-ts": "^2.12.0",
     "@parcel/transformer-typescript-types": "^2.12.0",
     "@types/node": "^22.8.2",
     "parcel": "^2.12.0",
     "prettier": "^3.3.3",
     "release-it": "^17.10.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^2"
   }
 }
