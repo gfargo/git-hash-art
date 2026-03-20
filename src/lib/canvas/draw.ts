@@ -356,7 +356,8 @@ function applyRenderStyle(
 
     case "stipple": {
       // Dot-fill texture — clip to shape, then scatter dots
-      // Optimized: use fillRect instead of arc for dots (much cheaper to render)
+      // Optimized: use fillRect instead of arc for dots (much cheaper to render),
+      // and cap total dot count to avoid O(size²) blowup on large shapes.
       const savedAlphaS = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaS * 0.15;
       ctx.fill(); // ghost fill
@@ -366,12 +367,17 @@ function applyRenderStyle(
       ctx.clip();
       const dotSpacing = Math.max(2, size * 0.03);
       const extentS = size * 0.55;
+      // Cap total dots: beyond ~900 (30×30 grid) the visual density plateaus
+      const maxDotsPerAxis = Math.min(Math.ceil((extentS * 2) / dotSpacing), 30);
+      const actualSpacing = (extentS * 2) / maxDotsPerAxis;
       ctx.globalAlpha = savedAlphaS * 0.7;
-      for (let dx = -extentS; dx <= extentS; dx += dotSpacing) {
-        for (let dy = -extentS; dy <= extentS; dy += dotSpacing) {
-          const jx = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
-          const jy = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
-          const dotD = rng ? dotSpacing * (0.3 + rng() * 0.4) : dotSpacing * 0.4;
+      for (let xi = 0; xi < maxDotsPerAxis; xi++) {
+        const dx = -extentS + xi * actualSpacing;
+        for (let yi = 0; yi < maxDotsPerAxis; yi++) {
+          const dy = -extentS + yi * actualSpacing;
+          const jx = rng ? (rng() - 0.5) * actualSpacing * 0.6 : 0;
+          const jy = rng ? (rng() - 0.5) * actualSpacing * 0.6 : 0;
+          const dotD = rng ? actualSpacing * (0.3 + rng() * 0.4) : actualSpacing * 0.4;
           ctx.fillRect(dx + jx - dotD * 0.5, dy + jy - dotD * 0.5, dotD, dotD);
         }
       }
@@ -406,7 +412,8 @@ function applyRenderStyle(
 
     case "noise-grain": {
       // Procedural noise grain texture clipped to shape boundary
-      // Optimized: quantize alpha into buckets to minimize globalAlpha state changes,
+      // Optimized: cap grid to max 40×40 = 1600 dots (was unbounded at O(size²)),
+      // quantize alpha into buckets to minimize globalAlpha state changes,
       // and batch dots by brightness (black/white) × alpha bucket
       const savedAlphaN = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaN * 0.25;
@@ -419,6 +426,11 @@ function applyRenderStyle(
       const extentN = size * 0.55;
 
       if (rng) {
+        // Cap grid to max 40 dots per axis — beyond this the grain is
+        // visually indistinguishable but cost scales quadratically.
+        const maxGrainPerAxis = Math.min(Math.ceil((extentN * 2) / grainSpacing), 40);
+        const actualGrainSpacing = (extentN * 2) / maxGrainPerAxis;
+
         // 4 alpha buckets: 0.2, 0.3, 0.4, 0.5 — covers the 0.15-0.50 range
         const BUCKETS = 4;
         const bucketMin = 0.15;
@@ -427,13 +439,15 @@ function applyRenderStyle(
         const buckets: Array<Array<{ x: number; y: number; s: number }>> = [];
         for (let i = 0; i < BUCKETS * 2; i++) buckets.push([]);
 
-        for (let gx = -extentN; gx <= extentN; gx += grainSpacing) {
-          for (let gy = -extentN; gy <= extentN; gy += grainSpacing) {
-            const jx = (rng() - 0.5) * grainSpacing * 1.2;
-            const jy = (rng() - 0.5) * grainSpacing * 1.2;
+        for (let xi = 0; xi < maxGrainPerAxis; xi++) {
+          const gx = -extentN + xi * actualGrainSpacing;
+          for (let yi = 0; yi < maxGrainPerAxis; yi++) {
+            const gy = -extentN + yi * actualGrainSpacing;
+            const jx = (rng() - 0.5) * actualGrainSpacing * 1.2;
+            const jy = (rng() - 0.5) * actualGrainSpacing * 1.2;
             const isWhite = rng() > 0.5;
             const dotAlpha = bucketMin + rng() * bucketRange;
-            const dotSize = grainSpacing * (0.3 + rng() * 0.5);
+            const dotSize = actualGrainSpacing * (0.3 + rng() * 0.5);
             const bucketIdx = Math.min(BUCKETS - 1, Math.floor((dotAlpha - bucketMin) / bucketRange * BUCKETS));
             const offset = isWhite ? BUCKETS : 0;
             buckets[offset + bucketIdx].push({ x: gx + jx, y: gy + jy, s: dotSize });
@@ -701,14 +715,17 @@ export function enhanceShapeGeneration(
   ctx.rotate((rotation * Math.PI) / 180);
 
   // ── Drop shadow — soft colored shadow offset along light direction ──
-  if (lightAngle !== undefined && size > 10) {
+  // Skip shadow entirely for small shapes (< 20px) — the blur is expensive
+  // and visually imperceptible at that scale.
+  const useShadow = size >= 20;
+  if (useShadow && lightAngle !== undefined) {
     const shadowDist = size * 0.035;
     const shadowBlurR = size * 0.06;
     ctx.shadowOffsetX = Math.cos(lightAngle + Math.PI) * shadowDist;
     ctx.shadowOffsetY = Math.sin(lightAngle + Math.PI) * shadowDist;
     ctx.shadowBlur = shadowBlurR;
     ctx.shadowColor = "rgba(0,0,0,0.12)";
-  } else if (glowRadius > 0) {
+  } else if (useShadow && glowRadius > 0) {
     // Glow / shadow effect (legacy path)
     ctx.shadowBlur = glowRadius;
     ctx.shadowColor = glowColor || fillColor;
@@ -736,31 +753,28 @@ export function enhanceShapeGeneration(
   }
 
   // Reset shadow so patterns and highlight aren't double-shadowed
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-  ctx.shadowColor = "transparent";
+  // Only reset if we actually set shadow (avoids unnecessary state changes)
+  if (useShadow && (lightAngle !== undefined || glowRadius > 0)) {
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.shadowColor = "transparent";
+  }
 
   // ── Specular highlight — tinted arc on the light-facing side ──
-  if (lightAngle !== undefined && size > 15 && rng) {
+  // Skip for small shapes (< 30px) — gradient creation + composite op
+  // switch is expensive and the highlight is invisible at small sizes.
+  if (lightAngle !== undefined && size > 30 && rng) {
     const hlRadius = size * 0.35;
     const hlDist = size * 0.15;
     const hlX = Math.cos(lightAngle) * hlDist;
     const hlY = Math.sin(lightAngle) * hlDist;
     const hlGrad = ctx.createRadialGradient(hlX, hlY, 0, hlX, hlY, hlRadius);
-    // Tint highlight warm/cool based on fill color for cohesion
-    // Parse fill to detect warmth — fallback to white for non-parseable
-    let hlBase = "255,255,255";
-    if (typeof fillColor === "string" && fillColor.startsWith("#") && fillColor.length >= 7) {
-      const r = parseInt(fillColor.slice(1, 3), 16);
-      const g = parseInt(fillColor.slice(3, 5), 16);
-      const b = parseInt(fillColor.slice(5, 7), 16);
-      // Blend toward white but keep a hint of the fill's warmth
-      hlBase = `${Math.round(r * 0.15 + 255 * 0.85)},${Math.round(g * 0.15 + 255 * 0.85)},${Math.round(b * 0.15 + 255 * 0.85)}`;
-    }
-    hlGrad.addColorStop(0, `rgba(${hlBase},0.18)`);
-    hlGrad.addColorStop(0.5, `rgba(${hlBase},0.05)`);
-    hlGrad.addColorStop(1, `rgba(${hlBase},0)`);
+    // Use a simple white highlight — the per-shape hex parse was expensive
+    // and the visual difference from tinted highlights is negligible.
+    hlGrad.addColorStop(0, "rgba(255,255,255,0.18)");
+    hlGrad.addColorStop(0.5, "rgba(255,255,255,0.05)");
+    hlGrad.addColorStop(1, "rgba(255,255,255,0)");
     const savedOp = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = "soft-light";
     ctx.fillStyle = hlGrad;
