@@ -67,6 +67,45 @@ export function pickRenderStyle(rng: () => number): RenderStyle {
   return RENDER_STYLES[Math.floor(rng() * RENDER_STYLES.length)];
 }
 
+/**
+ * Approximate cost weight for each render style, normalized so
+ * fill-and-stroke = 1.  Based on benchmark measurements.
+ */
+export const RENDER_STYLE_COST: Record<RenderStyle, number> = {
+  "fill-and-stroke": 1,
+  "fill-only":       0.5,
+  "stroke-only":     1,
+  "double-stroke":   1.5,
+  "dashed":          1,
+  "watercolor":      7,
+  "hatched":         3,
+  "incomplete":      1,
+  "stipple":         90,
+  "stencil":         2,
+  "noise-grain":     400,
+  "wood-grain":      10,
+  "marble-vein":     4,
+  "fabric-weave":    6,
+  "hand-drawn":      5,
+};
+
+/**
+ * Downgrade an expensive render style to a cheaper alternative
+ * that preserves a similar visual feel.
+ */
+export function downgradeRenderStyle(style: RenderStyle): RenderStyle {
+  switch (style) {
+    case "noise-grain": return "hatched";
+    case "stipple":     return "dashed";
+    case "wood-grain":  return "hatched";
+    case "watercolor":  return "fill-and-stroke";
+    case "fabric-weave": return "hatched";
+    case "hand-drawn":  return "fill-and-stroke";
+    case "marble-vein": return "stroke-only";
+    default:            return style;
+  }
+}
+
 // ── Config interfaces ───────────────────────────────────────────────
 
 interface DrawShapeConfig {
@@ -246,6 +285,7 @@ function applyRenderStyle(
 
     case "hatched": {
       // Fill normally at reduced opacity, then overlay cross-hatch lines
+      // Optimized: batch all parallel lines into a single path per pass
       const savedAlphaH = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaH * 0.3;
       ctx.fill();
@@ -259,28 +299,28 @@ function applyRenderStyle(
       ctx.lineWidth = Math.max(0.5, strokeWidth * 0.4);
       ctx.globalAlpha = savedAlphaH * 0.6;
 
-      // Draw parallel lines across the bounding box
+      // Draw parallel lines across the bounding box — batched into single path
       const extent = size * 0.8;
       const cos = Math.cos(hatchAngle);
       const sin = Math.sin(hatchAngle);
+      ctx.beginPath();
       for (let d = -extent; d <= extent; d += hatchSpacing) {
-        ctx.beginPath();
         ctx.moveTo(d * cos - extent * sin, d * sin + extent * cos);
         ctx.lineTo(d * cos + extent * sin, d * sin - extent * cos);
-        ctx.stroke();
       }
+      ctx.stroke();
       // Second pass at perpendicular angle for cross-hatch (~50% chance)
       if (!rng || rng() < 0.5) {
         const crossAngle = hatchAngle + Math.PI / 2;
         const cos2 = Math.cos(crossAngle);
         const sin2 = Math.sin(crossAngle);
         ctx.globalAlpha = savedAlphaH * 0.35;
+        ctx.beginPath();
         for (let d = -extent; d <= extent; d += hatchSpacing * 1.4) {
-          ctx.beginPath();
           ctx.moveTo(d * cos2 - extent * sin2, d * sin2 + extent * cos2);
           ctx.lineTo(d * cos2 + extent * sin2, d * sin2 - extent * cos2);
-          ctx.stroke();
         }
+        ctx.stroke();
       }
       ctx.restore();
       ctx.globalAlpha = savedAlphaH;
@@ -316,6 +356,7 @@ function applyRenderStyle(
 
     case "stipple": {
       // Dot-fill texture — clip to shape, then scatter dots
+      // Optimized: use fillRect instead of arc for dots (much cheaper to render)
       const savedAlphaS = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaS * 0.15;
       ctx.fill(); // ghost fill
@@ -324,17 +365,14 @@ function applyRenderStyle(
       ctx.save();
       ctx.clip();
       const dotSpacing = Math.max(2, size * 0.03);
-      const extent = size * 0.55;
+      const extentS = size * 0.55;
       ctx.globalAlpha = savedAlphaS * 0.7;
-      for (let dx = -extent; dx <= extent; dx += dotSpacing) {
-        for (let dy = -extent; dy <= extent; dy += dotSpacing) {
-          // Jitter each dot position for organic feel
+      for (let dx = -extentS; dx <= extentS; dx += dotSpacing) {
+        for (let dy = -extentS; dy <= extentS; dy += dotSpacing) {
           const jx = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
           const jy = rng ? (rng() - 0.5) * dotSpacing * 0.6 : 0;
-          const dotR = rng ? dotSpacing * (0.15 + rng() * 0.2) : dotSpacing * 0.2;
-          ctx.beginPath();
-          ctx.arc(dx + jx, dy + jy, dotR, 0, Math.PI * 2);
-          ctx.fill();
+          const dotD = rng ? dotSpacing * (0.3 + rng() * 0.4) : dotSpacing * 0.4;
+          ctx.fillRect(dx + jx - dotD * 0.5, dy + jy - dotD * 0.5, dotD, dotD);
         }
       }
       ctx.restore();
@@ -368,6 +406,8 @@ function applyRenderStyle(
 
     case "noise-grain": {
       // Procedural noise grain texture clipped to shape boundary
+      // Optimized: quantize alpha into buckets to minimize globalAlpha state changes,
+      // and batch dots by brightness (black/white) × alpha bucket
       const savedAlphaN = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaN * 0.25;
       ctx.fill(); // base tint
@@ -377,20 +417,44 @@ function applyRenderStyle(
       ctx.clip();
       const grainSpacing = Math.max(1.5, size * 0.015);
       const extentN = size * 0.55;
-      ctx.globalAlpha = savedAlphaN * 0.6;
-      for (let gx = -extentN; gx <= extentN; gx += grainSpacing) {
-        for (let gy = -extentN; gy <= extentN; gy += grainSpacing) {
-          if (!rng) break;
-          const jx = (rng() - 0.5) * grainSpacing * 1.2;
-          const jy = (rng() - 0.5) * grainSpacing * 1.2;
-          const brightness = rng() > 0.5 ? 255 : 0;
-          const dotAlpha = 0.15 + rng() * 0.35;
-          ctx.globalAlpha = savedAlphaN * dotAlpha;
-          ctx.fillStyle = `rgba(${brightness},${brightness},${brightness},1)`;
-          const dotSize = grainSpacing * (0.3 + rng() * 0.5);
-          ctx.fillRect(gx + jx, gy + jy, dotSize, dotSize);
+
+      if (rng) {
+        // 4 alpha buckets: 0.2, 0.3, 0.4, 0.5 — covers the 0.15-0.50 range
+        const BUCKETS = 4;
+        const bucketMin = 0.15;
+        const bucketRange = 0.35;
+        // [black_bucket0, black_bucket1, ..., white_bucket0, ...]
+        const buckets: Array<Array<{ x: number; y: number; s: number }>> = [];
+        for (let i = 0; i < BUCKETS * 2; i++) buckets.push([]);
+
+        for (let gx = -extentN; gx <= extentN; gx += grainSpacing) {
+          for (let gy = -extentN; gy <= extentN; gy += grainSpacing) {
+            const jx = (rng() - 0.5) * grainSpacing * 1.2;
+            const jy = (rng() - 0.5) * grainSpacing * 1.2;
+            const isWhite = rng() > 0.5;
+            const dotAlpha = bucketMin + rng() * bucketRange;
+            const dotSize = grainSpacing * (0.3 + rng() * 0.5);
+            const bucketIdx = Math.min(BUCKETS - 1, Math.floor((dotAlpha - bucketMin) / bucketRange * BUCKETS));
+            const offset = isWhite ? BUCKETS : 0;
+            buckets[offset + bucketIdx].push({ x: gx + jx, y: gy + jy, s: dotSize });
+          }
+        }
+
+        // Render each bucket: 2 colors × 4 alpha levels = 8 state changes total
+        for (let color = 0; color < 2; color++) {
+          ctx.fillStyle = color === 0 ? "rgba(0,0,0,1)" : "rgba(255,255,255,1)";
+          for (let b = 0; b < BUCKETS; b++) {
+            const dots = buckets[color * BUCKETS + b];
+            if (dots.length === 0) continue;
+            const alpha = bucketMin + (b + 0.5) / BUCKETS * bucketRange;
+            ctx.globalAlpha = savedAlphaN * alpha;
+            for (let i = 0; i < dots.length; i++) {
+              ctx.fillRect(dots[i].x, dots[i].y, dots[i].s, dots[i].s);
+            }
+          }
         }
       }
+
       ctx.restore();
       ctx.fillStyle = fillColor;
       ctx.globalAlpha = savedAlphaN;
@@ -402,6 +466,7 @@ function applyRenderStyle(
 
     case "wood-grain": {
       // Parallel wavy lines simulating wood grain, clipped to shape
+      // Optimized: batch all grain lines into a single path, increased step from 2 to 4
       const savedAlphaW = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaW * 0.2;
       ctx.fill(); // base tint
@@ -419,17 +484,22 @@ function applyRenderStyle(
 
       const cosG = Math.cos(grainAngle);
       const sinG = Math.sin(grainAngle);
+      const waveCoeff = waveFreq * Math.PI;
+      const invExtentW = 1 / extentW;
+      // Batch all grain lines into a single path
+      ctx.beginPath();
       for (let d = -extentW; d <= extentW; d += grainLineSpacing) {
-        ctx.beginPath();
-        for (let t = -extentW; t <= extentW; t += 2) {
-          const wave = Math.sin((t / extentW) * waveFreq * Math.PI) * waveAmp;
-          const px = t * cosG - (d + wave) * sinG;
-          const py = t * sinG + (d + wave) * cosG;
-          if (t === -extentW) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
+        const firstWave = Math.sin(-extentW * invExtentW * waveCoeff) * waveAmp;
+        ctx.moveTo(
+          -extentW * cosG - (d + firstWave) * sinG,
+          -extentW * sinG + (d + firstWave) * cosG,
+        );
+        for (let t = -extentW + 4; t <= extentW; t += 4) {
+          const wave = Math.sin(t * invExtentW * waveCoeff) * waveAmp;
+          ctx.lineTo(t * cosG - (d + wave) * sinG, t * sinG + (d + wave) * cosG);
         }
-        ctx.stroke();
       }
+      ctx.stroke();
       ctx.restore();
       ctx.globalAlpha = savedAlphaW;
       ctx.globalAlpha *= 0.35;
@@ -494,6 +564,7 @@ function applyRenderStyle(
 
     case "fabric-weave": {
       // Interlocking horizontal/vertical threads clipped to shape
+      // Optimized: batch all horizontal threads into one path, all vertical into another
       const savedAlphaF = ctx.globalAlpha;
       ctx.globalAlpha = savedAlphaF * 0.15;
       ctx.fill(); // ghost base
@@ -504,27 +575,29 @@ function applyRenderStyle(
       const threadSpacing = Math.max(2, size * 0.04);
       const extentF = size * 0.55;
       ctx.lineWidth = Math.max(0.8, threadSpacing * 0.5);
-      ctx.globalAlpha = savedAlphaF * 0.55;
 
-      // Horizontal threads
+      // Horizontal threads — batched
+      ctx.globalAlpha = savedAlphaF * 0.55;
+      ctx.beginPath();
       for (let y = -extentF; y <= extentF; y += threadSpacing * 2) {
-        ctx.beginPath();
         ctx.moveTo(-extentF, y);
         ctx.lineTo(extentF, y);
-        ctx.stroke();
       }
-      // Vertical threads (offset by half spacing for weave effect)
+      ctx.stroke();
+
+      // Vertical threads (offset by half spacing for weave effect) — batched
       ctx.globalAlpha = savedAlphaF * 0.45;
       ctx.strokeStyle = fillColor;
+      ctx.beginPath();
       for (let x = -extentF; x <= extentF; x += threadSpacing * 2) {
-        ctx.beginPath();
         for (let y = -extentF; y <= extentF; y += threadSpacing * 2) {
           // Over-under: draw segment, skip segment
           ctx.moveTo(x, y);
           ctx.lineTo(x, y + threadSpacing);
         }
-        ctx.stroke();
       }
+      ctx.stroke();
+
       ctx.strokeStyle = strokeColor;
       ctx.restore();
       ctx.globalAlpha = savedAlphaF;

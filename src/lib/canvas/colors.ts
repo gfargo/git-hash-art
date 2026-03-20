@@ -311,14 +311,23 @@ export class SacredColorScheme {
 
 // ── Standalone color utilities ──────────────────────────────────────
 
-/** Parse a hex color (#RRGGBB) into [r, g, b] 0-255. */
+// ── Cached hex→RGB parse — avoids repeated parseInt/substring on hot path ──
+const _rgbCache = new Map<string, [number, number, number]>();
+const _RGB_CACHE_MAX = 512;
+
+/** Parse a hex color (#RRGGBB) into [r, g, b] 0-255. Cached. */
 function hexToRgb(hex: string): [number, number, number] {
-  const c = hex.replace("#", "");
-  return [
+  let cached = _rgbCache.get(hex);
+  if (cached) return cached;
+  const c = hex.charAt(0) === "#" ? hex.substring(1) : hex;
+  cached = [
     parseInt(c.substring(0, 2), 16),
     parseInt(c.substring(2, 4), 16),
     parseInt(c.substring(4, 6), 16),
   ];
+  if (_rgbCache.size >= _RGB_CACHE_MAX) _rgbCache.clear();
+  _rgbCache.set(hex, cached);
+  return cached;
 }
 
 /** Format [r, g, b] back to #RRGGBB. */
@@ -365,7 +374,9 @@ function hslToHex(h: number, s: number, l: number): string {
  */
 export function hexWithAlpha(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
-  return `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+  // Quantize alpha to 3 decimal places without toFixed overhead
+  const a = Math.round(alpha * 1000) / 1000;
+  return `rgba(${r},${g},${b},${a})`;
 }
 
 /**
@@ -484,14 +495,20 @@ export function shiftTemperature(hex: string, target: "warm" | "cool", amount: n
 
 /**
  * Compute relative luminance of a hex color (0 = black, 1 = white).
- * Uses the sRGB luminance formula from WCAG.
+ * Uses the sRGB luminance formula from WCAG. Cached.
  */
+const _lumCache = new Map<string, number>();
 export function luminance(hex: string): number {
+  let cached = _lumCache.get(hex);
+  if (cached !== undefined) return cached;
   const [r, g, b] = hexToRgb(hex).map((c) => {
     const s = c / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  cached = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  if (_lumCache.size >= 512) _lumCache.clear();
+  _lumCache.set(hex, cached);
+  return cached;
 }
 
 /**
