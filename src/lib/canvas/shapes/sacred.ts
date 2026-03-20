@@ -149,28 +149,27 @@ export const drawVesicaPiscis: DrawFunction = (ctx, size) => {
 export const drawTorus: DrawFunction = (ctx, size) => {
   const outerRadius = size / 2;
   const innerRadius = size / 4;
-  const steps = 36;
+  // Adaptive step count: fewer segments for small shapes where detail isn't visible.
+  // 36×36 = 1296 segments at full size; at size < 60 we drop to 16×16 = 256.
+  const steps = size < 60 ? 16 : size < 150 ? 24 : 36;
+  const TWO_PI = Math.PI * 2;
+  const angleStep = TWO_PI / steps;
 
   ctx.beginPath();
   for (let i = 0; i < steps; i++) {
-    const angle1 = (i / steps) * Math.PI * 2;
-    // const angle2 = ((i + 1) / steps) * Math.PI * 2;
+    const angle1 = i * angleStep;
+    const cosA = Math.cos(angle1);
+    const sinA = Math.sin(angle1);
 
     for (let j = 0; j < steps; j++) {
-      const phi1 = (j / steps) * Math.PI * 2;
-      const phi2 = ((j + 1) / steps) * Math.PI * 2;
+      const phi1 = j * angleStep;
+      const phi2 = phi1 + angleStep;
 
-      const x1 =
-        (outerRadius + innerRadius * Math.cos(phi1)) * Math.cos(angle1);
-      const y1 =
-        (outerRadius + innerRadius * Math.cos(phi1)) * Math.sin(angle1);
-      const x2 =
-        (outerRadius + innerRadius * Math.cos(phi2)) * Math.cos(angle1);
-      const y2 =
-        (outerRadius + innerRadius * Math.cos(phi2)) * Math.sin(angle1);
+      const r1 = outerRadius + innerRadius * Math.cos(phi1);
+      const r2 = outerRadius + innerRadius * Math.cos(phi2);
 
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      ctx.moveTo(r1 * cosA, r1 * sinA);
+      ctx.lineTo(r2 * cosA, r2 * sinA);
     }
   }
 };

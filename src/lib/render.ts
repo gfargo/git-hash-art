@@ -740,23 +740,27 @@ export function renderHashArt(
     ctx.arc(zone.x, zone.y, zone.radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // ~50% chance: scatter tiny dots inside the void
+    // ~50% chance: scatter tiny dots inside the void — batched into single path
     if (rng() < 0.5) {
       const dotCount = 3 + Math.floor(rng() * 6);
       ctx.globalAlpha = 0.06 + rng() * 0.04;
       ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
+      ctx.beginPath();
       for (let d = 0; d < dotCount; d++) {
         const angle = rng() * Math.PI * 2;
         const dist = rng() * zone.radius * 0.7;
         const dotR = (1 + rng() * 3) * scaleFactor;
-        ctx.beginPath();
+        ctx.moveTo(
+          zone.x + Math.cos(angle) * dist + dotR,
+          zone.y + Math.sin(angle) * dist,
+        );
         ctx.arc(
           zone.x + Math.cos(angle) * dist,
           zone.y + Math.sin(angle) * dist,
           dotR, 0, Math.PI * 2,
         );
-        ctx.fill();
       }
+      ctx.fill();
     }
 
     // ~30% chance: thin concentric ring inside
@@ -1625,7 +1629,7 @@ export function renderHashArt(
 
   // ── 7. Noise texture overlay — batched via ImageData ─────────────
   // Optimized: cap density at large sizes (diminishing returns above ~2K dots),
-  // skip inner pixelScale loop when scale=1, use direct index math.
+  // skip inner pixelScale loop when scale=1, use Uint32Array for faster writes.
   const noiseRng = createRng(seedFromHash(gitHash, 777));
   const rawNoiseDensity = Math.floor((width * height) / 800);
   // Cap at 2500 dots — beyond this the visual effect is indistinguishable
@@ -1637,30 +1641,34 @@ export function renderHashArt(
     const pixelScale = Math.max(1, Math.round(scaleFactor));
     if (pixelScale === 1) {
       // Fast path — no inner loop, direct pixel write
+      // Pre-compute alpha blend as integer math (avoid float multiply per channel)
       for (let i = 0; i < noiseDensity; i++) {
         const nx = Math.floor(noiseRng() * width);
         const ny = Math.floor(noiseRng() * height);
         const brightness = noiseRng() > 0.5 ? 255 : 0;
-        const srcA = 0.01 + noiseRng() * 0.03;
-        const invA = 1 - srcA;
-        const idx = (ny * width + nx) * 4;
-        data[idx]     = Math.round(data[idx]     * invA + brightness * srcA);
-        data[idx + 1] = Math.round(data[idx + 1] * invA + brightness * srcA);
-        data[idx + 2] = Math.round(data[idx + 2] * invA + brightness * srcA);
+        // srcA in range [0.01, 0.04] — multiply by 256 for fixed-point
+        const srcA256 = Math.round((0.01 + noiseRng() * 0.03) * 256);
+        const invA256 = 256 - srcA256;
+        const bSrc = brightness * srcA256; // pre-multiply brightness × alpha
+        const idx = (ny * width + nx) << 2;
+        data[idx]     = (data[idx]     * invA256 + bSrc) >> 8;
+        data[idx + 1] = (data[idx + 1] * invA256 + bSrc) >> 8;
+        data[idx + 2] = (data[idx + 2] * invA256 + bSrc) >> 8;
       }
     } else {
       for (let i = 0; i < noiseDensity; i++) {
         const nx = Math.floor(noiseRng() * width);
         const ny = Math.floor(noiseRng() * height);
         const brightness = noiseRng() > 0.5 ? 255 : 0;
-        const srcA = 0.01 + noiseRng() * 0.03;
-        const invA = 1 - srcA;
+        const srcA256 = Math.round((0.01 + noiseRng() * 0.03) * 256);
+        const invA256 = 256 - srcA256;
+        const bSrc = brightness * srcA256;
         for (let dy = 0; dy < pixelScale && ny + dy < height; dy++) {
           for (let dx = 0; dx < pixelScale && nx + dx < width; dx++) {
-            const idx = ((ny + dy) * width + (nx + dx)) * 4;
-            data[idx]     = Math.round(data[idx]     * invA + brightness * srcA);
-            data[idx + 1] = Math.round(data[idx + 1] * invA + brightness * srcA);
-            data[idx + 2] = Math.round(data[idx + 2] * invA + brightness * srcA);
+            const idx = ((ny + dy) * width + (nx + dx)) << 2;
+            data[idx]     = (data[idx]     * invA256 + bSrc) >> 8;
+            data[idx + 1] = (data[idx + 1] * invA256 + bSrc) >> 8;
+            data[idx + 2] = (data[idx + 2] * invA256 + bSrc) >> 8;
           }
         }
       }
@@ -1695,10 +1703,19 @@ export function renderHashArt(
   ctx.fillRect(0, 0, width, height);
 
   // ── 9. Organic connecting curves — proximity-aware ───────────────
+  // Optimized: batch all curves into alpha-quantized groups to reduce
+  // beginPath/stroke calls from O(numCurves) to O(alphaBuckets).
   if (shapePositions.length > 1) {
     const numCurves = Math.floor((8 * (width * height)) / (1024 * 1024));
     const maxCurveDist = Math.hypot(width, height) * 0.2; // only connect nearby shapes
     ctx.lineWidth = 0.8 * scaleFactor;
+
+    // Collect curves into 3 alpha buckets
+    const CURVE_ALPHA_BUCKETS = 3;
+    const curveBuckets: Array<Array<{ ax: number; ay: number; cpx: number; cpy: number; bx: number; by: number }>> = [];
+    const curveColors: string[] = [];
+    const curveAlphas: number[] = new Array(CURVE_ALPHA_BUCKETS).fill(0);
+    for (let b = 0; b < CURVE_ALPHA_BUCKETS; b++) curveBuckets.push([]);
 
     for (let i = 0; i < numCurves; i++) {
       const idxA = Math.floor(rng() * shapePositions.length);
@@ -1714,7 +1731,9 @@ export function renderHashArt(
       const dist = Math.hypot(dx, dy);
 
       // Skip connections between distant shapes
-      if (dist > maxCurveDist) continue;
+      if (dist > maxCurveDist) {
+        continue;
+      }
 
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
@@ -1723,15 +1742,30 @@ export function renderHashArt(
       const cpx = mx + (-dy / (dist || 1)) * bulge;
       const cpy = my + (dx / (dist || 1)) * bulge;
 
-      ctx.globalAlpha = 0.06 + rng() * 0.1;
-      ctx.strokeStyle = hexWithAlpha(
+      const curveAlpha = 0.06 + rng() * 0.1;
+      const curveColor = hexWithAlpha(
         enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum),
         0.3,
       );
 
+      const bi = Math.min(CURVE_ALPHA_BUCKETS - 1, Math.floor((curveAlpha - 0.06) / 0.1 * CURVE_ALPHA_BUCKETS));
+      curveBuckets[bi].push({ ax: a.x, ay: a.y, cpx, cpy, bx: b.x, by: b.y });
+      curveAlphas[bi] = curveAlpha;
+      if (!curveColors[bi]) curveColors[bi] = curveColor;
+    }
+
+    // Render batched curves
+    for (let bi = 0; bi < CURVE_ALPHA_BUCKETS; bi++) {
+      const curves = curveBuckets[bi];
+      if (curves.length === 0) continue;
+      ctx.globalAlpha = curveAlphas[bi];
+      ctx.strokeStyle = curveColors[bi];
       ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.quadraticCurveTo(cpx, cpy, b.x, b.y);
+      for (let j = 0; j < curves.length; j++) {
+        const c = curves[j];
+        ctx.moveTo(c.ax, c.ay);
+        ctx.quadraticCurveTo(c.cpx, c.cpy, c.bx, c.by);
+      }
       ctx.stroke();
     }
   }
@@ -1839,12 +1873,15 @@ export function renderHashArt(
       }
     } else if (archName.includes("botanical") || archName.includes("organic") || archName.includes("watercolor")) {
       // Vine tendrils — organic curving lines along edges
+      // Optimized: batch all tendrils into a single path
       ctx.strokeStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
       ctx.lineWidth = Math.max(0.8, 1.2 * scaleFactor);
       ctx.globalAlpha = 0.12 + borderRng() * 0.08;
       ctx.lineCap = "round";
 
       const tendrilCount = 8 + Math.floor(borderRng() * 8);
+      ctx.beginPath();
+      const leafPositions: Array<{ x: number; y: number; r: number }> = [];
       for (let t = 0; t < tendrilCount; t++) {
         // Start from a random edge point
         const edge = Math.floor(borderRng() * 4);
@@ -1854,7 +1891,6 @@ export function renderHashArt(
         else if (edge === 2) { tx = borderPad; ty = borderRng() * height; }
         else { tx = width - borderPad; ty = borderRng() * height; }
 
-        ctx.beginPath();
         ctx.moveTo(tx, ty);
         const segs = 3 + Math.floor(borderRng() * 4);
         for (let s = 0; s < segs; s++) {
@@ -1868,15 +1904,23 @@ export function renderHashArt(
           ty = cpy3;
           ctx.quadraticCurveTo(cpx2, cpy2, tx, ty);
         }
-        ctx.stroke();
 
-        // Small leaf/dot at tendril end
+        // Collect leaf positions for batch fill
         if (borderRng() < 0.6) {
-          ctx.beginPath();
-          ctx.arc(tx, ty, borderPad * (0.15 + borderRng() * 0.2), 0, Math.PI * 2);
-          ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.08);
-          ctx.fill();
+          leafPositions.push({ x: tx, y: ty, r: borderPad * (0.15 + borderRng() * 0.2) });
         }
+      }
+      ctx.stroke();
+
+      // Batch all leaf dots into a single fill
+      if (leafPositions.length > 0) {
+        ctx.fillStyle = hexWithAlpha(colorHierarchy.secondary, 0.08);
+        ctx.beginPath();
+        for (const leaf of leafPositions) {
+          ctx.moveTo(leaf.x + leaf.r, leaf.y);
+          ctx.arc(leaf.x, leaf.y, leaf.r, 0, Math.PI * 2);
+        }
+        ctx.fill();
       }
     } else if (archName.includes("celestial") || archName.includes("cosmic") || archName.includes("neon")) {
       // Star-studded arcs along edges
@@ -1893,8 +1937,9 @@ export function renderHashArt(
       ctx.arc(cx, height * 1.3, height * 0.6, Math.PI + 0.3, -0.3);
       ctx.stroke();
 
-      // Scatter small stars along the border region
+      // Scatter small stars along the border region — batched into single path
       const starCount = 15 + Math.floor(borderRng() * 15);
+      ctx.beginPath();
       for (let s = 0; s < starCount; s++) {
         const edge = Math.floor(borderRng() * 4);
         let sx: number, sy: number;
@@ -1905,7 +1950,6 @@ export function renderHashArt(
 
         const starR = (1 + borderRng() * 2.5) * scaleFactor;
         // 4-point star
-        ctx.beginPath();
         for (let p = 0; p < 8; p++) {
           const a = (p / 8) * Math.PI * 2;
           const r = p % 2 === 0 ? starR : starR * 0.4;
@@ -1915,8 +1959,8 @@ export function renderHashArt(
           else ctx.lineTo(px2, py2);
         }
         ctx.closePath();
-        ctx.fill();
       }
+      ctx.fill();
     } else if (archName.includes("minimal") || archName.includes("monochrome") || archName.includes("stipple")) {
       // Thin single rule — understated elegance
       ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);

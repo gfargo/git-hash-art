@@ -122,24 +122,33 @@ export const drawIslamicPattern: DrawFunction = (ctx, size, config = {}) => {
 
   const gridSize = 8;
   const unit = size / gridSize;
+  const radius = unit / 2;
+
+  // Pre-compute the 8 star-point angle pairs (cos/sin) — avoids 648 trig calls
+  const starPoints: Array<{ c1: number; s1: number; c2: number; s2: number }> = [];
+  for (let k = 0; k < 8; k++) {
+    const angle = (Math.PI / 4) * k;
+    const angle2 = angle + Math.PI / 4;
+    starPoints.push({
+      c1: Math.cos(angle) * radius,
+      s1: Math.sin(angle) * radius,
+      c2: Math.cos(angle2) * radius,
+      s2: Math.sin(angle2) * radius,
+    });
+  }
 
   ctx.beginPath();
   // Create base grid
   for (let i = 0; i <= gridSize; i++) {
+    const x = (i - gridSize / 2) * unit;
     for (let j = 0; j <= gridSize; j++) {
-      const x = (i - gridSize / 2) * unit;
       const y = (j - gridSize / 2) * unit;
 
-      // Draw star pattern at each intersection
-      const radius = unit / 2;
+      // Draw star pattern at each intersection using pre-computed offsets
       for (let k = 0; k < 8; k++) {
-        const angle = (Math.PI / 4) * k;
-        const x1 = x + radius * Math.cos(angle);
-        const y1 = y + radius * Math.sin(angle);
-        const x2 = x + radius * Math.cos(angle + Math.PI / 4);
-        const y2 = y + radius * Math.sin(angle + Math.PI / 4);
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        const sp = starPoints[k];
+        ctx.moveTo(x + sp.c1, y + sp.s1);
+        ctx.lineTo(x + sp.c2, y + sp.s2);
       }
     }
   }
