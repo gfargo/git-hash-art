@@ -20,6 +20,8 @@ export interface GenerationConfig {
   opacityReduction: number;
   /** Base shapes per layer — defaults to gridSize² × 1.5 when 0 */
   shapesPerLayer: number;
+  /** Internal: collect per-phase timing data when set (not part of public API) */
+  _debugTiming?: { phases: Record<string, number>; shapeCount: number; extraCount: number };
 }
 
 export const DEFAULT_CONFIG: GenerationConfig = {
