@@ -420,6 +420,39 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   },
 };
 
+/**
+ * Register a custom shape profile into SHAPE_PROFILES.
+ * Merges user-provided partial profile with sensible defaults.
+ */
+export function registerCustomProfile(
+  name: string,
+  partial?: {
+    tier?: 1 | 2 | 3;
+    minSizeFraction?: number;
+    maxSizeFraction?: number;
+    affinities?: string[];
+    heroCandidate?: boolean;
+    bestStyles?: string[];
+  },
+): void {
+  SHAPE_PROFILES[name] = {
+    tier: partial?.tier ?? 2,
+    minSizeFraction: partial?.minSizeFraction ?? 0.05,
+    maxSizeFraction: partial?.maxSizeFraction ?? 1.0,
+    affinities: partial?.affinities ?? ["circle", "square"],
+    category: "procedural",
+    heroCandidate: partial?.heroCandidate ?? false,
+    bestStyles: partial?.bestStyles ?? ["fill-and-stroke", "watercolor"],
+  };
+}
+
+/**
+ * Remove a custom shape profile from SHAPE_PROFILES.
+ */
+export function unregisterCustomProfile(name: string): void {
+  delete SHAPE_PROFILES[name];
+}
+
 // ── Shape palette: curated sets of shapes that work well together ────
 
 export interface ShapePalette {
