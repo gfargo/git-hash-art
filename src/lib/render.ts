@@ -520,7 +520,32 @@ export function renderHashArt(
   const colorHierarchy = buildColorHierarchy(colors, rng);
 
   // ── 0c. Shape palette — curated shapes that work well together ──
-  const shapeNames = Object.keys(shapes);
+  // Merge custom shapes into a combined registry
+  const customShapeNames: string[] = [];
+  type DrawFunction = (ctx: CanvasRenderingContext2D, size: number, config?: any) => void;
+  let activeShapes: Record<string, DrawFunction> | undefined;
+  if (finalConfig.customShapes && Object.keys(finalConfig.customShapes).length > 0) {
+    activeShapes = { ...shapes };
+    for (const [name, def] of Object.entries(finalConfig.customShapes)) {
+      // Wrap CustomDrawFunction (ctx, size, rng) into DrawFunction (ctx, size, config?)
+      const customDraw = def.draw;
+      activeShapes[name] = (ctx, size, config?) => {
+        customDraw(ctx, size, config?.rng ?? Math.random);
+      };
+      // Register profile for affinity system (inlined to avoid ESM interop issues)
+      SHAPE_PROFILES[name] = {
+        tier: def.profile?.tier ?? 2,
+        minSizeFraction: def.profile?.minSizeFraction ?? 0.05,
+        maxSizeFraction: def.profile?.maxSizeFraction ?? 1.0,
+        affinities: def.profile?.affinities ?? ["circle", "square"],
+        category: "procedural",
+        heroCandidate: def.profile?.heroCandidate ?? false,
+        bestStyles: def.profile?.bestStyles ?? ["fill-and-stroke", "watercolor"],
+      };
+      customShapeNames.push(name);
+    }
+  }
+  const shapeNames = Object.keys(activeShapes ?? shapes);
   const shapePalette = buildShapePalette(rng, shapeNames, archetype.name);
 
   // ── 0d. Color grading — unified tone for the whole image ───────
@@ -873,6 +898,7 @@ export function renderHashArt(
       rng,
       lightAngle,
       scaleFactor,
+      activeShapes,
     });
 
     heroCenter = { x: heroFocal.x, y: heroFocal.y, size: heroSize };
@@ -1118,6 +1144,7 @@ export function renderHashArt(
         rng,
         lightAngle,
         scaleFactor,
+        activeShapes,
       };
 
       if (shouldMirror) {
@@ -1152,6 +1179,7 @@ export function renderHashArt(
               proportionType: "GOLDEN_RATIO",
               renderStyle: "fill-only",
               rng,
+              activeShapes,
             });
           }
           extrasSpent += glazePasses;
@@ -1186,6 +1214,7 @@ export function renderHashArt(
               proportionType: "GOLDEN_RATIO",
               renderStyle: finalRenderStyle,
               rng,
+              activeShapes,
             });
             shapePositions.push({ x: echoX, y: echoY, size: echoSize, shape });
             spatialGrid.insert({ x: echoX, y: echoY, size: echoSize, shape });
@@ -1237,6 +1266,7 @@ export function renderHashArt(
                 proportionType: "GOLDEN_RATIO",
                 renderStyle: innerStyle,
                 rng,
+                activeShapes,
               },
             );
             extrasSpent += RENDER_STYLE_COST[innerStyle] ?? 1;
@@ -1297,6 +1327,7 @@ export function renderHashArt(
               proportionType: "GOLDEN_RATIO",
               renderStyle: memberStyle,
               rng,
+              activeShapes,
             });
             shapePositions.push({ x: mx, y: my, size: member.size, shape: memberShape });
             spatialGrid.insert({ x: mx, y: my, size: member.size, shape: memberShape });
@@ -1348,6 +1379,7 @@ export function renderHashArt(
               proportionType: "GOLDEN_RATIO",
               renderStyle: finalRenderStyle,
               rng,
+              activeShapes,
             });
             shapePositions.push({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
             spatialGrid.insert({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
@@ -1368,72 +1400,7 @@ export function renderHashArt(
   if (_dt) { _dt.shapeCount = shapePositions.length; _dt.extraCount = extrasSpent; }
   _mark("5_shape_layers");
 
-  // ── 5g. Layered masking / cutout portals ───────────────────────
-  // ~18% of images get 1-3 portal windows that paint over foreground
-  // with a tinted background wash, creating a "peek through" effect.
-  if (rng() < 0.18 && shapePositions.length > 3) {
-    const portalCount = 1 + Math.floor(rng() * 2);
-    for (let p = 0; p < portalCount; p++) {
-      // Pick a position biased toward placed shapes
-      const sourceShape = shapePositions[Math.floor(rng() * shapePositions.length)];
-      const portalX = sourceShape.x + (rng() - 0.5) * sourceShape.size * 0.5;
-      const portalY = sourceShape.y + (rng() - 0.5) * sourceShape.size * 0.5;
-      const portalSize = adjustedMaxSize * (0.15 + rng() * 0.25);
-
-      // Pick a portal shape from the palette
-      const portalShape = pickShapeFromPalette(shapePalette, rng, portalSize / adjustedMaxSize);
-      const portalRotation = rng() * 360;
-      const portalAlpha = 0.6 + rng() * 0.35;
-
-      ctx.save();
-      ctx.translate(portalX, portalY);
-      ctx.rotate((portalRotation * Math.PI) / 180);
-
-      // Step 1: Clip to the portal shape and fill with background wash
-      ctx.beginPath();
-      shapes[portalShape]?.(ctx, portalSize);
-      ctx.clip();
-
-      // Fill the clipped region with a radial gradient from background colors
-      const portalColor = jitterColorHSL(bgStart, rng, 15, 0.1);
-      const portalGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, portalSize);
-      portalGrad.addColorStop(0, portalColor);
-      portalGrad.addColorStop(1, bgEnd);
-      ctx.globalAlpha = portalAlpha;
-      ctx.fillStyle = portalGrad;
-      ctx.fillRect(-portalSize, -portalSize, portalSize * 2, portalSize * 2);
-
-      // Optional: subtle inner texture — a few tiny dots inside the portal
-      if (rng() < 0.5) {
-        const dotCount = 3 + Math.floor(rng() * 5);
-        ctx.globalAlpha = portalAlpha * 0.3;
-        ctx.fillStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.2);
-        for (let d = 0; d < dotCount; d++) {
-          const dx = (rng() - 0.5) * portalSize * 1.4;
-          const dy = (rng() - 0.5) * portalSize * 1.4;
-          const dr = (1 + rng() * 3) * scaleFactor;
-          ctx.beginPath();
-          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      ctx.restore();
-
-      // Step 2: Draw a border ring around the portal (outside the clip)
-      ctx.save();
-      ctx.translate(portalX, portalY);
-      ctx.rotate((portalRotation * Math.PI) / 180);
-      ctx.globalAlpha = 0.15 + rng() * 0.2;
-      ctx.strokeStyle = hexWithAlpha(pickHierarchyColor(colorHierarchy, rng), 0.5);
-      ctx.lineWidth = (1.5 + rng() * 2.5) * scaleFactor;
-      ctx.beginPath();
-      shapes[portalShape]?.(ctx, portalSize * 1.06);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
+  // ── 5g. (Portal/cutout feature removed — replaced by custom shapes API) ──
 
   _mark("5g_portals");
 
@@ -2044,4 +2011,8 @@ export function renderHashArt(
   ctx.globalAlpha = 1;
   _mark("11_signature");
 
+  // Clean up custom shape profiles to avoid leaking into subsequent renders
+  for (const name of customShapeNames) {
+    delete SHAPE_PROFILES[name];
+  }
 }

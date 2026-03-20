@@ -134,6 +134,8 @@ interface EnhanceShapeConfig extends DrawShapeConfig {
   lightAngle?: number;
   /** Scale factor for resolution-independent sizing. */
   scaleFactor?: number;
+  /** Optional combined shapes registry (includes custom shapes). Falls back to built-in shapes. */
+  activeShapes?: Record<string, (ctx: CanvasRenderingContext2D, size: number, config?: any) => void>;
 }
 
 export function drawShape(
@@ -141,9 +143,9 @@ export function drawShape(
   shape: string,
   x: number,
   y: number,
-  config: DrawShapeConfig,
+  config: DrawShapeConfig & { activeShapes?: Record<string, (ctx: CanvasRenderingContext2D, size: number, config?: any) => void> },
 ) {
-  const { fillColor, strokeColor, strokeWidth, size, rotation } = config;
+  const { fillColor, strokeColor, strokeWidth, size, rotation, activeShapes } = config;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate((rotation * Math.PI) / 180);
@@ -151,7 +153,8 @@ export function drawShape(
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
 
-  const drawFunction = shapes[shape];
+  const registry = activeShapes ?? shapes;
+  const drawFunction = registry[shape];
   if (drawFunction) {
     drawFunction(ctx, size);
     ctx.fill();
@@ -746,7 +749,8 @@ export function enhanceShapeGeneration(
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
 
-  const drawFunction = shapes[shape];
+  const registry = config.activeShapes ?? shapes;
+  const drawFunction = registry[shape];
   if (drawFunction) {
     drawFunction(ctx, size, { rng });
     applyRenderStyle(ctx, renderStyle, fillColor, strokeColor, strokeWidth, size, rng);

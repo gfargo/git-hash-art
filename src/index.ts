@@ -66,5 +66,5 @@ function saveImageToFile(
 
 export { generateImageFromHash, saveImageToFile, renderHashArt };
 export { PRESETS } from "./lib/constants";
-export type { GenerationConfig } from "./types";
+export type { GenerationConfig, CustomShapeDefinition, CustomDrawFunction } from "./types";
 export { DEFAULT_CONFIG } from "./types";
