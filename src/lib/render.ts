@@ -479,6 +479,15 @@ export function renderHashArt(
   config: Partial<GenerationConfig> = {},
 ): void {
   const finalConfig: GenerationConfig = { ...DEFAULT_CONFIG, ...config };
+  const _dt = finalConfig._debugTiming;
+  const _t = _dt ? () => performance.now() : undefined;
+  let _p = _t ? _t() : 0;
+  function _mark(name: string) {
+    if (!_dt || !_t) return;
+    const now = _t();
+    _dt.phases[name] = (now - _p);
+    _p = now;
+  }
 
   const rng = createRng(seedFromHash(gitHash));
 
@@ -530,13 +539,16 @@ export function renderHashArt(
   const cx = width / 2;
   const cy = height / 2;
 
+  _mark("0_setup");
+
   // ── 1. Background ──────────────────────────────────────────────
   const bgRadius = Math.hypot(cx, cy);
   drawBackground(ctx, archetype.backgroundStyle, bgStart, bgEnd, width, height, cx, cy, bgRadius, rng, colors);
 
   // Gradient mesh overlay — 3-4 color control points for richer backgrounds
+  // Use source-over instead of soft-light for cheaper compositing
   const meshPoints = 3 + Math.floor(rng() * 2);
-  ctx.globalCompositeOperation = "soft-light";
+  ctx.globalAlpha = 1;
   for (let i = 0; i < meshPoints; i++) {
     const mx = rng() * width;
     const my = rng() * height;
@@ -545,104 +557,114 @@ export function renderHashArt(
     const grad = ctx.createRadialGradient(mx, my, 0, mx, my, mRadius);
     grad.addColorStop(0, hexWithAlpha(mColor, 0.08 + rng() * 0.06));
     grad.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.globalAlpha = 1;
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, width, height);
+    // Clip to gradient bounding box — avoids blending transparent pixels
+    const gx = Math.max(0, mx - mRadius);
+    const gy = Math.max(0, my - mRadius);
+    const gw = Math.min(width, mx + mRadius) - gx;
+    const gh = Math.min(height, my + mRadius) - gy;
+    ctx.fillRect(gx, gy, gw, gh);
   }
-  ctx.globalCompositeOperation = "source-over";
 
   // Compute average background luminance for contrast enforcement
   const bgLum = (luminance(bgStart) + luminance(bgEnd)) / 2;
 
   // ── 1b. Layered background — archetype-coherent shapes ─────────
+  // Use source-over with pre-multiplied alpha instead of soft-light
+  // for much cheaper compositing (soft-light requires per-pixel blend)
   const bgShapeCount = 3 + Math.floor(rng() * 4);
-  ctx.globalCompositeOperation = "soft-light";
   for (let i = 0; i < bgShapeCount; i++) {
     const bx = rng() * width;
     const by = rng() * height;
     const bSize = (width * 0.3 + rng() * width * 0.5);
     const bColor = pickHierarchyColor(colorHierarchy, rng);
-    ctx.globalAlpha = 0.03 + rng() * 0.05;
+    ctx.globalAlpha = (0.03 + rng() * 0.05) * 0.5; // halved to compensate for source-over vs soft-light
     ctx.fillStyle = hexWithAlpha(bColor, 0.15);
     ctx.beginPath();
     // Use archetype-appropriate background shapes
     if (archetype.name === "geometric-precision" || archetype.name === "op-art") {
-      // Rectangular shapes for geometric archetypes
       ctx.rect(bx - bSize / 2, by - bSize / 2, bSize, bSize * (0.5 + rng() * 0.5));
     } else {
       ctx.arc(bx, by, bSize / 2, 0, Math.PI * 2);
     }
     ctx.fill();
   }
-  // Subtle concentric rings from center
+  // Subtle concentric rings from center — batched into single stroke
   const ringCount = 2 + Math.floor(rng() * 3);
   ctx.globalAlpha = 0.02 + rng() * 0.03;
   ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);
   ctx.lineWidth = 1 * scaleFactor;
+  ctx.beginPath();
   for (let i = 1; i <= ringCount; i++) {
     const r = (Math.min(width, height) * 0.15) * i;
-    ctx.beginPath();
+    ctx.moveTo(cx + r, cy);
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.stroke();
   }
-  ctx.globalCompositeOperation = "source-over";
+  ctx.stroke();
 
   // ── 1c. Background pattern layer — subtle textured paper ───────
   const bgPatternRoll = rng();
   if (bgPatternRoll < 0.6) {
     ctx.save();
-    ctx.globalCompositeOperation = "soft-light";
     const patternOpacity = 0.02 + rng() * 0.04;
     const patternColor = hexWithAlpha(colorHierarchy.dominant, 0.15);
 
     if (bgPatternRoll < 0.2) {
-      // Dot grid — batched into a single path
-      const dotSpacing = Math.max(8, Math.min(width, height) * (0.015 + rng() * 0.015));
-      const dotR = dotSpacing * 0.08;
+      // Dot grid — use fillRect instead of arcs (much cheaper, no path building)
+      const dotSpacing = Math.max(12, Math.min(width, height) * (0.015 + rng() * 0.015));
+      const dotDiam = Math.max(1, Math.round(dotSpacing * 0.16));
       ctx.globalAlpha = patternOpacity;
       ctx.fillStyle = patternColor;
-      ctx.beginPath();
-      for (let px = 0; px < width; px += dotSpacing) {
-        for (let py = 0; py < height; py += dotSpacing) {
-          ctx.moveTo(px + dotR, py);
-          ctx.arc(px, py, dotR, 0, Math.PI * 2);
+      let dotCount = 0;
+      for (let px = 0; px < width && dotCount < 2000; px += dotSpacing) {
+        for (let py = 0; py < height && dotCount < 2000; py += dotSpacing) {
+          ctx.fillRect(px, py, dotDiam, dotDiam);
+          dotCount++;
         }
       }
-      ctx.fill();
     } else if (bgPatternRoll < 0.4) {
-      // Diagonal lines — batched into a single path
-      const lineSpacing = Math.max(6, Math.min(width, height) * (0.02 + rng() * 0.02));
+      // Diagonal lines — batched into a single path, capped at 300 lines
+      const lineSpacing = Math.max(10, Math.min(width, height) * (0.02 + rng() * 0.02));
       ctx.globalAlpha = patternOpacity;
       ctx.strokeStyle = patternColor;
       ctx.lineWidth = 0.5 * scaleFactor;
       const diag = Math.hypot(width, height);
       ctx.beginPath();
-      for (let d = -diag; d < diag; d += lineSpacing) {
+      let lineCount = 0;
+      for (let d = -diag; d < diag && lineCount < 300; d += lineSpacing) {
         ctx.moveTo(d, 0);
         ctx.lineTo(d + height, height);
+        lineCount++;
       }
       ctx.stroke();
     } else {
-      // Tessellation — hexagonal grid, batched into a single path
-      const tessSize = Math.max(10, Math.min(width, height) * (0.025 + rng() * 0.02));
+      // Tessellation — hexagonal grid, capped at 500 hexagons
+      const tessSize = Math.max(15, Math.min(width, height) * (0.025 + rng() * 0.02));
       const tessH = tessSize * Math.sqrt(3);
       ctx.globalAlpha = patternOpacity * 0.7;
       ctx.strokeStyle = patternColor;
       ctx.lineWidth = 0.4 * scaleFactor;
+      // Pre-compute hex vertex offsets (avoid trig per vertex)
+      const hexVx: number[] = [];
+      const hexVy: number[] = [];
+      for (let s = 0; s < 6; s++) {
+        const angle = (Math.PI / 3) * s - Math.PI / 6;
+        hexVx.push(Math.cos(angle) * tessSize * 0.5);
+        hexVy.push(Math.sin(angle) * tessSize * 0.5);
+      }
       ctx.beginPath();
-      for (let row = 0; row * tessH < height + tessH; row++) {
+      let hexCount = 0;
+      for (let row = 0; row * tessH < height + tessH && hexCount < 500; row++) {
         const offsetX = (row % 2) * tessSize * 0.75;
-        for (let col = 0; col * tessSize * 1.5 < width + tessSize * 1.5; col++) {
+        for (let col = 0; col * tessSize * 1.5 < width + tessSize * 1.5 && hexCount < 500; col++) {
           const hx = col * tessSize * 1.5 + offsetX;
           const hy = row * tessH;
-          for (let s = 0; s < 6; s++) {
-            const angle = (Math.PI / 3) * s - Math.PI / 6;
-            const vx = hx + Math.cos(angle) * tessSize * 0.5;
-            const vy = hy + Math.sin(angle) * tessSize * 0.5;
-            if (s === 0) ctx.moveTo(vx, vy);
-            else ctx.lineTo(vx, vy);
+          ctx.moveTo(hx + hexVx[0], hy + hexVy[0]);
+          for (let s = 1; s < 6; s++) {
+            ctx.lineTo(hx + hexVx[s], hy + hexVy[s]);
           }
           ctx.closePath();
+          hexCount++;
         }
       }
       ctx.stroke();
@@ -650,6 +672,8 @@ export function renderHashArt(
     ctx.restore();
   }
   ctx.globalCompositeOperation = "source-over";
+
+  _mark("1_background");
 
   // ── 2. Composition mode — archetype-aware selection ──────────────
   const compositionMode: CompositionMode = rng() < 0.7
@@ -776,6 +800,8 @@ export function renderHashArt(
   }
   ctx.globalAlpha = 1;
 
+  _mark("2_3_composition_focal");
+
   // ── 4. Flow field — simplex noise for organic variation ─────────
   // Create a seeded simplex noise field (unique per hash)
   const noiseFieldRng = createRng(seedFromHash(gitHash, 333));
@@ -854,6 +880,8 @@ export function renderHashArt(
     spatialGrid.insert({ x: heroFocal.x, y: heroFocal.y, size: heroSize, shape: heroShape });
   }
 
+
+  _mark("4_flowfield_hero");
 
   // ── 5. Shape layers ────────────────────────────────────────────
   const maxLocalDensity = Math.ceil(shapesPerLayer * 0.15);
@@ -1337,6 +1365,8 @@ export function renderHashArt(
 
   // Reset blend mode for post-processing passes
   ctx.globalCompositeOperation = "source-over";
+  if (_dt) { _dt.shapeCount = shapePositions.length; _dt.extraCount = extrasSpent; }
+  _mark("5_shape_layers");
 
   // ── 5g. Layered masking / cutout portals ───────────────────────
   // ~18% of images get 1-3 portal windows that paint over foreground
@@ -1404,6 +1434,8 @@ export function renderHashArt(
     }
   }
 
+
+  _mark("5g_portals");
 
   // ── 6. Flow-line pass — variable color, branching, pressure ────
   // Optimized: collect all segments into width-quantized buckets, then
@@ -1546,6 +1578,8 @@ export function renderHashArt(
     }
   }
 
+  _mark("6_flow_lines");
+
   // ── 6b. Motion/energy lines — short directional bursts ─────────
   // Optimized: collect all burst segments, then batch by quantized alpha
   const energyArchetypes = ["dense-chaotic", "cosmic", "neon-glow", "bold-graphic"];
@@ -1605,6 +1639,8 @@ export function renderHashArt(
     }
   }
 
+  _mark("6b_energy_lines");
+
   // ── 6c. Apply symmetry mirroring ─────────────────────────────────
   if (symmetryMode !== "none") {
     const canvas = ctx.canvas;
@@ -1627,65 +1663,27 @@ export function renderHashArt(
   }
 
 
-  // ── 7. Noise texture overlay — batched via ImageData ─────────────
-  // Optimized: cap density at large sizes (diminishing returns above ~2K dots),
-  // skip inner pixelScale loop when scale=1, use Uint32Array for faster writes.
+  _mark("6c_symmetry");
+
+  // ── 7. Noise texture overlay ─────────────────────────────────────
+  // With density capped at 2500 dots, direct fillRect calls are far cheaper
+  // than the getImageData/putImageData round-trip which copies the entire
+  // pixel buffer (4 × width × height bytes) twice.
   const noiseRng = createRng(seedFromHash(gitHash, 777));
   const rawNoiseDensity = Math.floor((width * height) / 800);
-  // Cap at 2500 dots — beyond this the visual effect is indistinguishable
-  // but getImageData/putImageData cost scales with canvas size
   const noiseDensity = Math.min(rawNoiseDensity, 2500);
-  try {
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    const pixelScale = Math.max(1, Math.round(scaleFactor));
-    if (pixelScale === 1) {
-      // Fast path — no inner loop, direct pixel write
-      // Pre-compute alpha blend as integer math (avoid float multiply per channel)
-      for (let i = 0; i < noiseDensity; i++) {
-        const nx = Math.floor(noiseRng() * width);
-        const ny = Math.floor(noiseRng() * height);
-        const brightness = noiseRng() > 0.5 ? 255 : 0;
-        // srcA in range [0.01, 0.04] — multiply by 256 for fixed-point
-        const srcA256 = Math.round((0.01 + noiseRng() * 0.03) * 256);
-        const invA256 = 256 - srcA256;
-        const bSrc = brightness * srcA256; // pre-multiply brightness × alpha
-        const idx = (ny * width + nx) << 2;
-        data[idx]     = (data[idx]     * invA256 + bSrc) >> 8;
-        data[idx + 1] = (data[idx + 1] * invA256 + bSrc) >> 8;
-        data[idx + 2] = (data[idx + 2] * invA256 + bSrc) >> 8;
-      }
-    } else {
-      for (let i = 0; i < noiseDensity; i++) {
-        const nx = Math.floor(noiseRng() * width);
-        const ny = Math.floor(noiseRng() * height);
-        const brightness = noiseRng() > 0.5 ? 255 : 0;
-        const srcA256 = Math.round((0.01 + noiseRng() * 0.03) * 256);
-        const invA256 = 256 - srcA256;
-        const bSrc = brightness * srcA256;
-        for (let dy = 0; dy < pixelScale && ny + dy < height; dy++) {
-          for (let dx = 0; dx < pixelScale && nx + dx < width; dx++) {
-            const idx = ((ny + dy) * width + (nx + dx)) << 2;
-            data[idx]     = (data[idx]     * invA256 + bSrc) >> 8;
-            data[idx + 1] = (data[idx + 1] * invA256 + bSrc) >> 8;
-            data[idx + 2] = (data[idx + 2] * invA256 + bSrc) >> 8;
-          }
-        }
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-  } catch {
-    // Fallback for environments where getImageData isn't available (e.g. some OffscreenCanvas)
-    for (let i = 0; i < noiseDensity; i++) {
-      const nx = noiseRng() * width;
-      const ny = noiseRng() * height;
-      const brightness = noiseRng() > 0.5 ? 255 : 0;
-      const alpha = 0.01 + noiseRng() * 0.03;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = `rgba(${brightness},${brightness},${brightness},1)`;
-      ctx.fillRect(nx, ny, 1 * scaleFactor, 1 * scaleFactor);
-    }
+  const pixelScale = Math.max(1, Math.round(scaleFactor));
+  for (let i = 0; i < noiseDensity; i++) {
+    const nx = noiseRng() * width;
+    const ny = noiseRng() * height;
+    const brightness = noiseRng() > 0.5 ? 255 : 0;
+    const alpha = 0.01 + noiseRng() * 0.03;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
+    ctx.fillRect(nx, ny, pixelScale, pixelScale);
   }
+
+  _mark("7_noise_texture");
 
   // ── 8. Vignette — darken edges to draw the eye inward ───────────
   ctx.globalAlpha = 1;
@@ -1701,6 +1699,8 @@ export function renderHashArt(
   vigGrad.addColorStop(1, vignetteColor);
   ctx.fillStyle = vigGrad;
   ctx.fillRect(0, 0, width, height);
+
+  _mark("8_vignette");
 
   // ── 9. Organic connecting curves — proximity-aware ───────────────
   // Optimized: batch all curves into alpha-quantized groups to reduce
@@ -1770,6 +1770,8 @@ export function renderHashArt(
     }
   }
 
+  _mark("9_connecting_curves");
+
   // ── 10. Post-processing ────────────────────────────────────────
 
   // 10a. Color grading — unified tone across the whole image
@@ -1826,6 +1828,8 @@ export function renderHashArt(
     ctx.fillRect(0, 0, width, height);
     ctx.globalCompositeOperation = "source-over";
   }
+
+  _mark("10_post_processing");
 
   // ── 10e. Generative borders — archetype-driven decorative frames ──
   {
@@ -1973,6 +1977,8 @@ export function renderHashArt(
     ctx.restore();
   }
 
+  _mark("10e_borders");
+
   // ── 11. Signature mark — placed in the least-dense corner ──────
   {
     const sigRng = createRng(seedFromHash(gitHash, 42));
@@ -2036,5 +2042,6 @@ export function renderHashArt(
   }
 
   ctx.globalAlpha = 1;
+  _mark("11_signature");
 
 }
