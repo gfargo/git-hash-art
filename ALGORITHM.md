@@ -35,10 +35,12 @@ Hash String
        2.  Composition Mode Selection (archetype-aware, 6 modes including golden-spiral)
        2b. Symmetry Mode Selection (none / bilateral / quad)
        3.  Focal Points (rule-of-thirds biased) + Void Zones (archetype-aware density)
+       3a. Composition Anchor (~70% off-center: radial modes orbit a thirds point, shapes bleed past the frame)
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
        4.  Flow Field Initialization (simplex noise FBM)
        4a. Noise Size Modulation (terrain-like size variation from noise field)
        4b. Hero Shape (palette-aware, affinity-styled)
+       4c. Growth Structures (queue-based branching: coral/root growth or crack networks)
        5.  Shape Layers (× N layers, archetype-tuned)
        │   ├─ Blend Mode (per-layer compositing)
        │   ├─ Render Style (affinity-aware per shape)
@@ -63,6 +65,7 @@ Hash String
        │   └─ 5f. Rhythm Placement (~12% of medium-large shapes, geometric progressions)
        5g. Layered Masking / Cutout Portals (~18% of images)
        6.  Flow-Line Pass (variable color, pressure, branching, void-aware)
+       6a. Hero Ribbons (flow-heavy archetypes: 2-4 long, wide, tapered brush strokes)
        6b. Motion/Energy Lines (directional bursts from shapes)
        6c. Layered Transparency / Glazing (~20% of shapes get multi-pass redraws)
        7.  Symmetry Mirroring (bilateral-x, bilateral-y, or quad)
@@ -74,6 +77,7 @@ Hash String
            ├─ Chromatic Aberration (neon/cosmic/ethereal only)
            ├─ Bloom (neon/cosmic only)
            └─ Gradient Map (~35% chance, luminance-mapped two-color overlay)
+       11a. Material Layer (torn-paper deckle frame + translucent vellum sheets)
        11b. Generative Borders (archetype-driven decorative frames)
        12. Signature Mark (density-aware placement, deterministic geometric chop mark)
 ```
@@ -246,6 +250,7 @@ The system includes 40+ shapes across 4 categories:
 | Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, fractal |
 | Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, torus, eggOfLife |
 | Procedural (18) | blob, ngon, lissajous, superellipse, spirograph, waveRing, rose, shardField, voronoiCell, crescent, tendril, cloudForm, inkSplat, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, crosshatchPatch |
+| Organic (2) | noiseForm, contourField — **no fixed silhouette**: each draw contours a hash-seeded simplex noise field via marching squares, producing genuinely novel island/cell outlines (with occasional satellite islets); contourField adds nested topographic rings |
 
 ### Quality Tiers
 
@@ -270,12 +275,15 @@ Each shape has a profile with:
 4. **Accents (3 shapes):** Tier 1–2 shapes from *other* categories for contrast
 
 Archetype-specific overrides apply:
+- **Poster-flat group** (`bold-graphic`, `minimal-spacious`, `collage`, `op-art`): dense wireframe/pattern shapes (mandala, platonicSolid, spirograph, lattices) are swapped for clean silhouettes (crescent, reuleauxTriangle, circle, triangle, superellipse, hexagon…) — large flat shapes carry these compositions
+- **Soft-wash group** (`watercolor-wash`, `ethereal`, `organic-flow`): wireframe lattices are replaced by organic silhouettes (blob, cloudForm, crescent, waveRing, rose…)
 - `geometric-precision` removes organic/procedural shapes from primary
-- `organic-flow` boosts blobs and wave rings
 - `shattered-glass` boosts angular shapes (shardField, voronoiCell, penroseTile), removes blobs/clouds
 - `botanical` boosts organic shapes (tendril, cloudForm, crescent, rose, inkSplat)
 - `stipple-portrait` boosts dot-friendly shapes (dotCluster, circle, crosshatchPatch)
 - `celestial` boosts sacred/cosmic shapes (crescent, geodesicDome, mandala, flowerOfLife)
+
+Complex shapes (mandala, platonic solids, lattices, spirals) **inherit the palette-driven fill/stroke/width state** from the renderer — an earlier bug forced them all to render as 1px black wireframes, which pasted the same dark cobweb motif over every image regardless of palette. Detailed pattern shapes are also size-capped (≈ 0.35–0.6 of max size) so they act as texture accents rather than dominant decals.
 
 ### Palette-Driven Selection
 
@@ -329,6 +337,10 @@ The average luminance of the two background colors is computed and stored. This 
 
 ## 6. Composition & Symmetry
 
+### Composition Anchor & Edge Bleed
+
+~70% of images place the composition's center of gravity **off-center** — the radial, spiral, and golden-spiral modes orbit the primary focal point (a rule-of-thirds intersection) instead of the canvas center. Placement radii extend to ~0.55–0.58 of the short dimension, so shapes reach and crop past the frame edge. Together these break the "centered blob" silhouette: mass sits on a thirds line, the far side opens into negative space, and edge-cropped shapes make the composition feel larger than the canvas.
+
 ### Composition Modes
 
 Each image uses one of 6 composition strategies for shape placement. Composition mode selection is **archetype-aware**: each archetype declares a `preferredCompositions` array, and selection is 70% from the archetype's preferred modes / 30% from the full set. This ensures archetypes get compositions that suit their character while preserving variety.
@@ -378,6 +390,16 @@ Void zones aren't left completely empty — they receive subtle decorative eleme
 
 These decorations are subtle enough to preserve the breathing room while preventing void zones from feeling like rendering errors.
 
+## 7b. Growth Structures
+
+Some images grow **emergent branching structures** — content produced by simulation rather than shape placement. A queue of growing tips walks the shared noise field, stepping, tapering, and probabilistically branching (up to depth 3, capped at ~900 segments):
+
+- **Organic mode** (botanical/organic-flow ~80%, watercolor-wash/ethereal/celestial/cosmic ~35%, most others ~12%): smooth noise-curled coral/root growth rising from the lower canvas, round caps, tapered widths, and batched "polyp" dots at branch tips
+- **Crack mode** (shattered-glass/geometric-precision/monochrome-ink ~50%): thin jagged networks shooting inward from a canvas edge with sharp directional jumps — fracture lines
+- Poster archetypes (bold-graphic, minimal-spacious, collage, op-art, stipple-portrait) never grow structures — their flat character stays clean
+
+Structures are drawn before the shape layers so they weave through the mid-ground, colored from the hierarchy (secondary/accent) with contrast enforcement.
+
 ## 8. Hero Shape
 
 When the archetype enables `heroShape` and the RNG roll passes (60% chance), a dominant focal element is drawn at the first focal point:
@@ -395,9 +417,10 @@ The core of the image: `layers` passes (archetype-controlled, typically 2–5), 
 
 ### Per-Layer Setup
 
-- **Blend mode:** Random compositing mode (`source-over`, `multiply`, `screen`, `overlay`, `soft-light`, etc.)
+- **Blend mode:** Background-aware compositing — light backgrounds choose from `source-over`/`multiply`/`soft-light`, dark backgrounds from `source-over`/`screen`/`lighter`/`soft-light`. (Multiply on dark or screen on light produced muddy, illegible layers.)
 - **Render style bias:** 60% chance of using an archetype-preferred style; 40% random
-- **Opacity:** Decreases per layer (`baseOpacity - layer × opacityReduction`, floor 0.15)
+- **Opacity:** Decreases per layer (`baseOpacity - layer × opacityReduction`, floor 0.15); on very light backgrounds (luminance > 0.75) the whole layer is lifted ×1.35 so soft washes still register
+- **Extras scale:** The shape-multiplying extras (mirrors, glazing, echoes, nesting, constellations, rhythm) are probability-scaled by archetype density — ×0.3 for minimal archetypes (gridSize ≤ 3), ×0.7 for mid-density (≤ 5), ×1 otherwise — so sparse archetypes keep their intended airiness
 - **Size scale:** Decreases 15% per layer (later layers = smaller shapes)
 - **Atmospheric desaturation:** Later layers are progressively desaturated (up to 30%) to simulate depth
 - **Depth-of-field:** Later layers get thinner strokes (down to 40% of base width) and reduced contrast (up to 20% opacity reduction), simulating camera focus falloff
@@ -423,8 +446,10 @@ For each shape in a layer:
 5. **Shape selection:** `pickShapeFromPalette` with size-constraint filtering
 6. **Rotation:** Flow-field angle in flow-field mode (±15° jitter); random otherwise
 7. **Hero avoidance:** Shapes within 1.5× the hero's size orient toward it (rotation blended 40% toward the angle-to-hero)
-8. **Color:** Positional color from hierarchy + HSL jitter, with atmospheric desaturation and temperature contrast applied
-9. **Contrast enforcement:** Fill and stroke colors checked against background luminance
+8. **Color:** Positional color from hierarchy (zoned around the composition anchor) + HSL jitter, with atmospheric desaturation and temperature contrast applied
+8b. **Value hierarchy by scale:** Large shapes (> 55% of max size) are desaturated and get lower fill alpha — quiet masses; small shapes (< 22%) get a saturation boost and denser fill — vivid accents. Very dark fills on light backgrounds are alpha-thinned so ink accents punctuate without reading as glitches
+8c. **Tone-on-tone strokes:** ~70% of strokes are a lightness-shifted version of the fill (darker on light backgrounds, lighter on dark) so outlines read as part of the shape; the remaining 30% pull an independent hierarchy color for deliberate contrast
+9. **Contrast enforcement:** Fill and stroke colors checked against background luminance. Enforcement moves colors toward *tinted* darks/lights (lightness floor 0.24 / ceiling 0.86) — never pure black or white
 10. **Styling:** Affinity-aware render style, optional glow (sacred shapes 45% base chance × archetype multiplier), optional radial gradient fill (30% chance)
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
 12. **Shadow & highlight:** Each shape receives a directional drop shadow and specular highlight based on the consistent light angle (see below)
@@ -536,6 +561,10 @@ Each shape is drawn using one of 15 render styles:
 | marble-vein | 35% soft base + clipped branching vein lines that drift and fork, simulating marble stone |
 | fabric-weave | 15% ghost base + clipped interlocking horizontal and vertical thread lines at alternating opacities |
 | hand-drawn | Fill + 2–3 wobbly offset stroke passes simulating a hand-drawn sketch |
+| ink-bleed | Wet-ink physics: uneven multi-pass core, tapered fiber wisps wicking past the boundary, pooled pigment on one side, flicked satellite droplets |
+| drip | Fill + stroke, then gravity: paint runs downward **in canvas space** (un-rotated), wavering as they fall and ending in terminal droplets |
+
+Note: `stencil` remains implemented but is excluded from the random style pool — its filled bounding rectangle read as a glitch block in most compositions.
 
 ### Texture Fill Details
 
@@ -614,6 +643,10 @@ Each flow line:
 - **Taper:** Width and opacity decrease toward the end (80% taper over the stroke length)
 - **Branching:** ~12% chance per step (between steps 5 and N-10) to spawn a child stroke at ±0.3–0.8 radians, 40% width, 5–15 steps, 60% parent opacity
 
+### Hero Ribbons
+
+The batched micro flow lines read as faint texture, so flow-heavy archetypes (`flowLineMultiplier ≥ 1.5`) also draw **2–4 hero ribbons** — long (70–130 steps), wide (5–13px scaled) brush strokes that sweep across the composition following the same noise field. Each ribbon uses a sine width/opacity envelope (needle-thin at both ends, full-bodied mid-stroke), interpolates between two hierarchy colors at its midpoint, respects void zones, and may run slightly past the canvas edge. These give "flow" archetypes their visible identity.
+
 ## 12. Post-Processing
 
 After all shapes, flow lines, and symmetry mirroring:
@@ -626,7 +659,7 @@ The noise is applied via **ImageData buffer manipulation** — reading the canva
 
 ### Vignette
 
-A radial gradient darkens the edges: transparent at center, ramping to 25–45% opacity at the corners. The vignette color is **palette-tinted** based on background luminance:
+A radial gradient gently darkens the edges: transparent at center, ramping to 12–22% opacity on dark backgrounds and just 6–14% on light ones. (Stronger vignettes created a "halo" silhouette that amplified the centered-blob look.) The vignette color is **palette-tinted** based on background luminance:
 - **Light backgrounds** (luminance > 0.5): warm sepia tone `rgba(80,60,30,...)` — avoids the harsh look of black vignette on light art
 - **Dark backgrounds**: classic black `rgba(0,0,0,...)` — the traditional approach
 
@@ -660,6 +693,13 @@ Only for `neon-glow` and `cosmic` archetypes. The canvas is redrawn with `shadow
 - **Effect:** Shadows take on the dominant color's hue while highlights shift toward the accent, creating a cohesive tonal relationship across the entire image
 
 The `color` blend mode only affects hue and saturation (not luminance), so the gradient map tints the image without changing its brightness structure. At 6–12% opacity, the effect is subtle — it unifies the color temperature without overpowering the original palette.
+
+### Material Layer
+
+Whole-image physical treatments applied after color grading, making the composition read as an object rather than pixels in a rectangle:
+
+- **Torn-paper deckle frame** (~50% of paper-friendly archetypes: collage, watercolor-wash, monochrome-ink, stipple-portrait, botanical, minimal-spacious): the canvas boundary is masked by an irregular hand-torn edge — perimeter points with smoothed random insets, filled in a background-family paper color via even-odd winding, plus a soft shadow line just inside the tear for physical depth
+- **Vellum sheets** (~18% of all images): 1–2 large translucent panels (torn-quad outlines with jittered edges) laid over part of the composition like layered tracing paper, with a faint edge stroke to sell the sheet boundary
 
 ### Generative Borders
 

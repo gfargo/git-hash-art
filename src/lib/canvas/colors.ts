@@ -41,7 +41,6 @@ function pickSchemeType(seed: number): SchemeType {
   return SCHEME_TYPES[Math.abs(seed >> 4) % SCHEME_TYPES.length];
 }
 
-
 // ── Temperature contrast ─────────────────────────────────────────
 // Warm hues: 0-60 (red-yellow) and 300-360 (magenta-red)
 // Cool hues: 150-270 (cyan-blue-purple)
@@ -59,7 +58,11 @@ function classifyHue(hue: number): "warm" | "cool" | "neutral" {
  * Shift a hue toward a target temperature zone.
  * Returns a new hue biased warm or cool.
  */
-function shiftHueToward(hue: number, target: "warm" | "cool", amount: number): number {
+function shiftHueToward(
+  hue: number,
+  target: "warm" | "cool",
+  amount: number,
+): number {
   if (target === "warm") {
     // Pull toward 30 (orange) — the warmest point
     const warmTarget = 30;
@@ -92,7 +95,8 @@ export class SacredColorScheme {
     this.schemeType = pickSchemeType(this.seed);
     // ~40% warm-bg, ~40% cool-bg, ~20% neutral (no temperature bias)
     const tempRoll = this.rng();
-    this.temperatureMode = tempRoll < 0.4 ? "warm-bg" : tempRoll < 0.8 ? "cool-bg" : "neutral";
+    this.temperatureMode =
+      tempRoll < 0.4 ? "warm-bg" : tempRoll < 0.8 ? "cool-bg" : "neutral";
     this.baseScheme = this.generateBaseScheme();
     this.complementaryScheme = this.generateComplementaryScheme();
     this.triadicScheme = this.generateTriadicScheme();
@@ -112,7 +116,11 @@ export class SacredColorScheme {
     const complementaryHue = (this.seed + 180) % 360;
     // Complementary uses a contrasting variation for tension
     const compVariation =
-      this.variation === "soft" ? "hard" : this.variation === "pale" ? "light" : this.variation;
+      this.variation === "soft"
+        ? "hard"
+        : this.variation === "pale"
+          ? "light"
+          : this.variation;
     const scheme = new ColorScheme();
     return scheme
       .from_hue(complementaryHue)
@@ -158,9 +166,7 @@ export class SacredColorScheme {
       case "monochrome": {
         // Single hue, 5 lightness steps
         const s = 0.5 + this.rng() * 0.3;
-        return [0.15, 0.3, 0.45, 0.6, 0.75].map((l) =>
-          hslToHex(baseHue, s, l),
-        );
+        return [0.15, 0.3, 0.45, 0.6, 0.75].map((l) => hslToHex(baseHue, s, l));
       }
       case "duotone": {
         // Two contrasting colors + tints
@@ -174,19 +180,35 @@ export class SacredColorScheme {
       }
       case "neon": {
         // High saturation, vivid colors
-        const hues = [baseHue, (baseHue + 90) % 360, (baseHue + 180) % 360, (baseHue + 270) % 360];
+        const hues = [
+          baseHue,
+          (baseHue + 90) % 360,
+          (baseHue + 180) % 360,
+          (baseHue + 270) % 360,
+        ];
         return hues.map((h) => hslToHex(h, 1.0, 0.55 + this.rng() * 0.1));
       }
       case "pastel-light": {
         // Soft pastels
-        const hues = [baseHue, (baseHue + 60) % 360, (baseHue + 120) % 360, (baseHue + 200) % 360];
-        return hues.map((h) => hslToHex(h, 0.4 + this.rng() * 0.2, 0.75 + this.rng() * 0.1));
+        const hues = [
+          baseHue,
+          (baseHue + 60) % 360,
+          (baseHue + 120) % 360,
+          (baseHue + 200) % 360,
+        ];
+        return hues.map((h) =>
+          hslToHex(h, 0.4 + this.rng() * 0.2, 0.75 + this.rng() * 0.1),
+        );
       }
       case "earth": {
         // Warm muted naturals: browns, olives, terracotta, sage
         const earthHues = [25, 35, 45, 80, 150]; // orange-brown to olive to sage
         return earthHues.map((h) =>
-          hslToHex(h + this.rng() * 15, 0.25 + this.rng() * 0.2, 0.35 + this.rng() * 0.2),
+          hslToHex(
+            h + this.rng() * 15,
+            0.25 + this.rng() * 0.2,
+            0.35 + this.rng() * 0.2,
+          ),
         );
       }
       case "high-contrast": {
@@ -245,7 +267,10 @@ export class SacredColorScheme {
   getBackgroundColorsByMode(mode: string): [string, string] {
     switch (mode) {
       case "pastel-light":
-        return [hslToHex(this.seed % 360, 0.15, 0.92), hslToHex((this.seed + 30) % 360, 0.1, 0.88)];
+        return [
+          hslToHex(this.seed % 360, 0.15, 0.92),
+          hslToHex((this.seed + 30) % 360, 0.1, 0.88),
+        ];
       case "high-contrast":
       case "monochrome-ink":
         return ["#f5f5f0", "#e8e8e0"];
@@ -253,11 +278,17 @@ export class SacredColorScheme {
       case "analogous-accent":
         return this.getBackgroundColors();
       case "limited-palette":
-        return [hslToHex(this.seed % 360, 0.08, 0.94), hslToHex((this.seed + 20) % 360, 0.06, 0.90)];
+        return [
+          hslToHex(this.seed % 360, 0.08, 0.94),
+          hslToHex((this.seed + 20) % 360, 0.06, 0.9),
+        ];
       case "neon":
         return ["#0a0a12", "#050510"];
       case "earth":
-        return [this.darken(hslToHex(35, 0.3, 0.25), 0.8), this.darken(hslToHex(25, 0.25, 0.2), 0.7)];
+        return [
+          this.darken(hslToHex(35, 0.3, 0.25), 0.8),
+          this.darken(hslToHex(25, 0.25, 0.2), 0.7),
+        ];
       default:
         return this.getBackgroundColors();
     }
@@ -291,7 +322,11 @@ export class SacredColorScheme {
   /**
    * Shift a hex color's hue toward warm or cool.
    */
-  private shiftColorTemperature(hex: string, target: "warm" | "cool", amount: number): string {
+  private shiftColorTemperature(
+    hex: string,
+    target: "warm" | "cool",
+    amount: number,
+  ): string {
     const [h, s, l] = hexToHsl(hex);
     const shifted = shiftHueToward(h, target, amount);
     return hslToHex(shifted, s, l);
@@ -358,13 +393,28 @@ function hslToHex(h: number, s: number, l: number): string {
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
-  let r = 0, g = 0, b = 0;
-  if (h < 60) { r = c; g = x; }
-  else if (h < 120) { r = x; g = c; }
-  else if (h < 180) { g = c; b = x; }
-  else if (h < 240) { g = x; b = c; }
-  else if (h < 300) { r = x; b = c; }
-  else { r = c; b = x; }
+  let r = 0,
+    g = 0,
+    b = 0;
+  if (h < 60) {
+    r = c;
+    g = x;
+  } else if (h < 120) {
+    r = x;
+    g = c;
+  } else if (h < 180) {
+    g = c;
+    b = x;
+  } else if (h < 240) {
+    g = x;
+    b = c;
+  } else if (h < 300) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
   return rgbToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
 }
 
@@ -390,7 +440,10 @@ export interface ColorHierarchy {
   all: string[];
 }
 
-export function buildColorHierarchy(colors: string[], rng: () => number): ColorHierarchy {
+export function buildColorHierarchy(
+  colors: string[],
+  rng: () => number,
+): ColorHierarchy {
   if (colors.length < 3) {
     return {
       dominant: colors[0] || "#888888",
@@ -408,22 +461,34 @@ export function buildColorHierarchy(colors: string[], rng: () => number): ColorH
     // Chroma approximation: saturation × how far lightness is from 50% (gray)
     const lightnessVibrancy = 1 - Math.abs(hsls[i][2] - 0.5) * 2; // peaks at L=0.5
     const chroma = hsls[i][1] * lightnessVibrancy;
-    if (chroma > maxChroma) { maxChroma = chroma; dominantIdx = i; }
+    if (chroma > maxChroma) {
+      maxChroma = chroma;
+      dominantIdx = i;
+    }
   }
   // Accent is the color most distant from dominant in hue
   let accentIdx = 0;
   let maxDist = 0;
   for (let i = 0; i < hsls.length; i++) {
     if (i === dominantIdx) continue;
-    const d = Math.min(Math.abs(hsls[i][0] - hsls[dominantIdx][0]), 360 - Math.abs(hsls[i][0] - hsls[dominantIdx][0]));
-    if (d > maxDist) { maxDist = d; accentIdx = i; }
+    const d = Math.min(
+      Math.abs(hsls[i][0] - hsls[dominantIdx][0]),
+      360 - Math.abs(hsls[i][0] - hsls[dominantIdx][0]),
+    );
+    if (d > maxDist) {
+      maxDist = d;
+      accentIdx = i;
+    }
   }
   // Secondary is the remaining color with highest saturation
   let secondaryIdx = 0;
   let maxSat = -1;
   for (let i = 0; i < hsls.length; i++) {
     if (i === dominantIdx || i === accentIdx) continue;
-    if (hsls[i][1] > maxSat) { maxSat = hsls[i][1]; secondaryIdx = i; }
+    if (hsls[i][1] > maxSat) {
+      maxSat = hsls[i][1];
+      secondaryIdx = i;
+    }
   }
   if (secondaryIdx === dominantIdx) secondaryIdx = accentIdx === 0 ? 1 : 0;
 
@@ -439,9 +504,12 @@ export function buildColorHierarchy(colors: string[], rng: () => number): ColorH
  * Pick a color from the hierarchy with weighted probability.
  * ~60% dominant, ~25% secondary, ~15% accent.
  */
-export function pickHierarchyColor(hierarchy: ColorHierarchy, rng: () => number): string {
+export function pickHierarchyColor(
+  hierarchy: ColorHierarchy,
+  rng: () => number,
+): string {
   const roll = rng();
-  if (roll < 0.60) return hierarchy.dominant;
+  if (roll < 0.6) return hierarchy.dominant;
   if (roll < 0.85) return hierarchy.secondary;
   return hierarchy.accent;
 }
@@ -488,7 +556,11 @@ export function desaturate(hex: string, amount: number): string {
  * Shift a hex color's hue toward warm (orange) or cool (blue).
  * `amount` 0 = unchanged, 1 = fully shifted.
  */
-export function shiftTemperature(hex: string, target: "warm" | "cool", amount: number): string {
+export function shiftTemperature(
+  hex: string,
+  target: "warm" | "cool",
+  amount: number,
+): string {
   const [h, s, l] = hexToHsl(hex);
   return hslToHex(shiftHueToward(h, target, amount), s, l);
 }
@@ -532,16 +604,34 @@ export function enforceContrast(
   const [h, s, l] = hexToHsl(fgHex);
 
   if (bgLuminance > 0.5) {
-    // Light background — darken and boost saturation
-    const targetL = Math.max(0.08, l - (minContrast - diff) * 1.5);
-    const targetS = Math.min(1, s + 0.2);
+    // Light background — darken toward a tinted (never black) dark.
+    // The lightness floor keeps enforced colors reading as deep hues
+    // rather than harsh black fragments.
+    const targetL = Math.max(0.24, l - (minContrast - diff) * 1.1);
+    const targetS = Math.min(0.85, s + 0.1);
     return hslToHex(h, targetS, targetL);
   } else {
-    // Dark background — lighten and boost saturation
-    const targetL = Math.min(0.92, l + (minContrast - diff) * 1.5);
-    const targetS = Math.min(1, s + 0.15);
+    // Dark background — lighten, capped below pure white
+    const targetL = Math.min(0.86, l + (minContrast - diff) * 1.1);
+    const targetS = Math.min(0.9, s + 0.1);
     return hslToHex(h, targetS, targetL);
   }
+}
+
+/**
+ * Shift a hex color's saturation by a signed amount (clamped to [0, 1]).
+ */
+export function adjustSaturation(hex: string, amount: number): string {
+  const [h, s, l] = hexToHsl(hex);
+  return hslToHex(h, Math.max(0, Math.min(1, s + amount)), l);
+}
+
+/**
+ * Shift a hex color's lightness by a signed amount (clamped to [0.04, 0.96]).
+ */
+export function adjustLightness(hex: string, amount: number): string {
+  const [h, s, l] = hexToHsl(hex);
+  return hslToHex(h, s, Math.max(0.04, Math.min(0.96, l + amount)));
 }
 
 /**
@@ -566,10 +656,14 @@ export function applyColorGrade(
  * Compute a deterministic color grade from the hash.
  * Returns a hue (0-360) and intensity (0.15-0.4).
  */
-export function pickColorGrade(rng: () => number): { hue: number; intensity: number } {
+export function pickColorGrade(rng: () => number): {
+  hue: number;
+  intensity: number;
+} {
   // Warm golden, cool blue, rosy, teal, amber
   const GRADE_HUES = [40, 220, 340, 175, 30];
-  const hue = GRADE_HUES[Math.floor(rng() * GRADE_HUES.length)] + (rng() - 0.5) * 20;
+  const hue =
+    GRADE_HUES[Math.floor(rng() * GRADE_HUES.length)] + (rng() - 0.5) * 20;
   const intensity = 0.15 + rng() * 0.25;
   return { hue: (hue + 360) % 360, intensity };
 }
@@ -596,6 +690,6 @@ export function evolveHierarchy(
     dominant: hueRotate(base.dominant, shift),
     secondary: hueRotate(base.secondary, shift * 0.7),
     accent: hueRotate(base.accent, shift * 0.5),
-    all: base.all.map(c => hueRotate(c, shift * 0.6)),
+    all: base.all.map((c) => hueRotate(c, shift * 0.6)),
   };
 }

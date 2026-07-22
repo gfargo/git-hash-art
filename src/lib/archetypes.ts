@@ -10,27 +10,27 @@ import type { RenderStyle } from "./canvas/draw";
 // ── Background types ────────────────────────────────────────────────
 
 export type BackgroundStyle =
-  | "radial-dark"       // current default: dark radial gradient
-  | "radial-light"      // light center, medium edges
+  | "radial-dark" // current default: dark radial gradient
+  | "radial-light" // light center, medium edges
   | "linear-horizontal" // left-to-right gradient
-  | "linear-diagonal"   // corner-to-corner gradient
-  | "solid-dark"        // flat dark color
-  | "solid-light"       // flat light/white color
-  | "multi-stop";       // 3-4 color gradient
+  | "linear-diagonal" // corner-to-corner gradient
+  | "solid-dark" // flat dark color
+  | "solid-light" // flat light/white color
+  | "multi-stop"; // 3-4 color gradient
 
 // ── Palette modes ───────────────────────────────────────────────────
 
 export type PaletteMode =
-  | "harmonious"    // current default: full palette
-  | "monochrome"    // single hue, varying lightness
-  | "duotone"       // two colors only
-  | "neon"          // high saturation on dark
-  | "pastel-light"  // soft pastels on light background
-  | "earth"         // muted warm naturals
+  | "harmonious" // current default: full palette
+  | "monochrome" // single hue, varying lightness
+  | "duotone" // two colors only
+  | "neon" // high saturation on dark
+  | "pastel-light" // soft pastels on light background
+  | "earth" // muted warm naturals
   | "high-contrast" // black + white + one accent
   | "split-complementary" // base hue + two flanking complements
-  | "analogous-accent"    // tight analogous cluster + one distant accent
-  | "limited-palette";    // 3 colors only, risograph-print feel
+  | "analogous-accent" // tight analogous cluster + one distant accent
+  | "limited-palette"; // 3 colors only, risograph-print feel
 
 // ── Archetype definition ────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ const ARCHETYPES: Archetype[] = [
     maxShapeSize: 200,
     backgroundStyle: "radial-dark",
     paletteMode: "harmonious",
-    preferredStyles: ["fill-and-stroke", "watercolor", "fill-only"],
+    preferredStyles: ["fill-and-stroke", "watercolor", "fill-only", "drip"],
     preferredCompositions: ["clustered", "flow-field", "radial"],
     flowLineMultiplier: 2.5,
     heroShape: false,
@@ -125,7 +125,7 @@ const ARCHETYPES: Archetype[] = [
     maxShapeSize: 250,
     backgroundStyle: "radial-dark",
     paletteMode: "earth",
-    preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredStyles: ["watercolor", "fill-only", "ink-bleed", "incomplete"],
     preferredCompositions: ["flow-field", "golden-spiral", "spiral"],
     flowLineMultiplier: 4,
     heroShape: false,
@@ -251,7 +251,7 @@ const ARCHETYPES: Archetype[] = [
     maxShapeSize: 700,
     backgroundStyle: "radial-light",
     paletteMode: "harmonious",
-    preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredStyles: ["watercolor", "fill-only", "ink-bleed"],
     preferredCompositions: ["golden-spiral", "flow-field", "radial"],
     flowLineMultiplier: 0.5,
     heroShape: false,
@@ -341,7 +341,7 @@ const ARCHETYPES: Archetype[] = [
     maxShapeSize: 400,
     backgroundStyle: "radial-light",
     paletteMode: "earth",
-    preferredStyles: ["watercolor", "fill-only", "incomplete"],
+    preferredStyles: ["watercolor", "fill-only", "ink-bleed", "incomplete"],
     preferredCompositions: ["flow-field", "golden-spiral", "spiral"],
     flowLineMultiplier: 3,
     heroShape: true,
@@ -400,8 +400,12 @@ function lerpNum(a: number, b: number, t: number): number {
  */
 function blendArchetypes(a: Archetype, b: Archetype, t: number): Archetype {
   // Merge preferred styles — unique union, primary archetype first
-  const mergedStyles = [...new Set([...a.preferredStyles, ...b.preferredStyles])] as RenderStyle[];
-  const mergedCompositions = [...new Set([...a.preferredCompositions, ...b.preferredCompositions])] as CompositionMode[];
+  const mergedStyles = [
+    ...new Set([...a.preferredStyles, ...b.preferredStyles]),
+  ] as RenderStyle[];
+  const mergedCompositions = [
+    ...new Set([...a.preferredCompositions, ...b.preferredCompositions]),
+  ] as CompositionMode[];
 
   return {
     name: `${a.name}+${b.name}`,
