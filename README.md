@@ -1,30 +1,45 @@
+<div align="center">
+
 # git-hash-art
 
-Generate beautiful, deterministic abstract art from git commit hashes. Perfect for creating unique visual representations of your project's commits, generating placeholder images, or creating artistic wallpapers.
+**Deterministic generative art from git commit hashes.**
 
-Works in both Node.js and browser environments.
+Every commit becomes a one-of-a-kind abstract composition — same hash, same image, forever.
 
-## Features
+[![npm version](https://img.shields.io/npm/v/git-hash-art?color=c4634f&label=npm)](https://www.npmjs.com/package/git-hash-art)
+[![npm downloads](https://img.shields.io/npm/dm/git-hash-art?color=8a9a5b)](https://www.npmjs.com/package/git-hash-art)
+[![license](https://img.shields.io/badge/license-MIT-4a7a8c)](LICENSE)
+[![types](https://img.shields.io/badge/types-included-5a6a9a)](https://www.npmjs.com/package/git-hash-art)
+[![gallery](https://img.shields.io/badge/gallery-git--hash--art.griffen.codes-6a5a8a)](https://git-hash-art.griffen.codes)
 
-- Deterministic output — same hash always produces the same image
-- Hash-driven color palettes — 6 variation modes × 5 scheme types for dramatic palette diversity
-- Per-layer blend modes — `screen`, `multiply`, `overlay`, `soft-light`, and more for painterly depth
-- 6 shape render styles — fill+stroke, wireframe, dashed, double-stroke, watercolor bleed, fill-only
-- 20+ shape types across three categories: basic, complex, and sacred geometry
-- Layered composition with depth — early layers use simple shapes, later layers use intricate ones
-- Atmospheric perspective — later layers desaturate for foreground/background separation
-- Negative space — void zones and density-aware placement create intentional breathing room
-- Watercolor-style transparency with semi-transparent fills and color blending
-- Organic edges — ~15% of shapes get multi-pass watercolor bleed for hand-drawn quality
-- Glow effects on sacred geometry shapes for an ethereal quality
-- Layered backgrounds — faint shapes and concentric rings add texture before the main layers
-- Tapered flow lines — brush-stroke curves with width and opacity tapering
-- Radial gradient fills and organic color jitter for a hand-painted feel
-- Organic bezier curves connecting nearby shapes
-- Configurable canvas size, layers, shape sizes, and opacity
-- Built-in presets for social media, device wallpapers, and print sizes
-- CLI for generating art from the current commit or a specific hash
-- Cross-platform: runs in Node.js (via `@napi-rs/canvas`) and browsers (native Canvas API)
+<br />
+
+*Generated from the latest commit hashes of well-known open-source repos:*
+
+| [<img src="https://git-hash-art.griffen.codes/oss-art/facebook--react.png" width="180" alt="react" />](https://git-hash-art.griffen.codes)<br />`react` | [<img src="https://git-hash-art.griffen.codes/oss-art/sveltejs--svelte.png" width="180" alt="svelte" />](https://git-hash-art.griffen.codes)<br />`svelte` | [<img src="https://git-hash-art.griffen.codes/oss-art/denoland--deno.png" width="180" alt="deno" />](https://git-hash-art.griffen.codes)<br />`deno` | [<img src="https://git-hash-art.griffen.codes/oss-art/colinhacks--zod.png" width="180" alt="zod" />](https://git-hash-art.griffen.codes)<br />`zod` |
+| :---: | :---: | :---: | :---: |
+| [<img src="https://git-hash-art.griffen.codes/oss-art/tailwindlabs--tailwindcss.png" width="180" alt="tailwindcss" />](https://git-hash-art.griffen.codes)<br />`tailwindcss` | [<img src="https://git-hash-art.griffen.codes/oss-art/oven-sh--bun.png" width="180" alt="bun" />](https://git-hash-art.griffen.codes)<br />`bun` | [<img src="https://git-hash-art.griffen.codes/oss-art/mrdoob--three.js.png" width="180" alt="three.js" />](https://git-hash-art.griffen.codes)<br />`three.js` | [<img src="https://git-hash-art.griffen.codes/oss-art/bigskysoftware--htmx.png" width="180" alt="htmx" />](https://git-hash-art.griffen.codes)<br />`htmx` |
+
+**[Browse the full gallery →](https://git-hash-art.griffen.codes)**
+
+</div>
+
+---
+
+## How it works
+
+A commit hash seeds a deterministic PRNG that drives every decision in a multi-stage rendering pipeline:
+
+- **17 visual archetypes** — fundamentally different personalities (`minimal-spacious`, `neon-glow`, `watercolor-wash`, `shattered-glass`, `celestial`, …), with ~15% of hashes blending two
+- **44 shapes across 5 categories** — basic, complex, sacred geometry, procedural, and *noise-field organics* whose silhouettes are contoured from hash-seeded simplex noise, so no two renders ever repeat a form
+- **17 render styles** — watercolor bleeds, ink-bleed with fiber wicking and satellite droplets, gravity-correct paint drips, stipple, cross-hatch, hand-drawn wobble, and more
+- **Generative mark-making** — branching growth structures (coral roots or crack networks), sweeping hero flow ribbons, and rare hard-mirror Rorschach symmetry
+- **Composition & color discipline** — rule-of-thirds anchors with edge bleed, dominant/secondary/accent color hierarchies, background-aware blend modes, value hierarchy by scale
+- **Physical finishing** — torn-paper deckle frames, translucent vellum sheets, film grain, palette-tinted vignettes, and a per-hash signature chop mark
+
+The full pipeline is documented in [ALGORITHM.md](ALGORITHM.md).
+
+Works in **Node.js** (via `@napi-rs/canvas`) and **browsers** (native Canvas API), with zero config and full determinism — the same hash produces byte-identical output every time.
 
 ## Installation
 
@@ -38,96 +53,56 @@ For Node.js usage you also need the canvas backend:
 npm install @napi-rs/canvas
 ```
 
-Browser usage requires no additional dependencies — the library uses the native Canvas 2D API.
+Browser usage requires no additional dependencies.
 
-## Node.js Usage
+## Quick start
+
+### Node.js
 
 ```javascript
 import { generateImageFromHash, saveImageToFile } from 'git-hash-art';
 
-// Generate a PNG buffer from a git hash
 const gitHash = '46192e59d42f741c761cbea79462a8b3815dd905';
 const imageBuffer = generateImageFromHash(gitHash);
 
-// Save to disk
 saveImageToFile(imageBuffer, './output', gitHash, 'my-art', 2048, 2048);
 ```
 
-### Advanced Node.js Usage
-
-```javascript
-import { generateImageFromHash } from 'git-hash-art';
-
-const config = {
-  width: 1920,
-  height: 1080,
-  gridSize: 6,
-  layers: 5,
-  shapesPerLayer: 40,
-  minShapeSize: 20,
-  maxShapeSize: 300,
-  baseOpacity: 0.7,
-  opacityReduction: 0.12
-};
-
-const imageBuffer = generateImageFromHash(gitHash, config);
-```
-
-## Browser Usage
+### Browser
 
 ```javascript
 import { renderToCanvas, generateDataURL, generateImageBlob } from 'git-hash-art/browser';
-```
 
-### Render onto an existing canvas element
-
-```javascript
-import { renderToCanvas } from 'git-hash-art/browser';
-
+// Render onto an existing canvas element
 const canvas = document.getElementById('art-canvas');
 canvas.width = 1024;
 canvas.height = 1024;
-
 renderToCanvas(canvas, '46192e59d42f741c761cbea79462a8b3815dd905');
+
+// Or get a data URL for <img> tags
+const dataUrl = generateDataURL(hash, { width: 512, height: 512 });
+
+// Or a Blob for downloads/uploads
+const blob = await generateImageBlob(hash, { width: 1080, height: 1080 });
 ```
 
-### Generate a data URL (for `<img>` tags)
+### CLI
 
-```javascript
-import { generateDataURL } from 'git-hash-art/browser';
+```bash
+# Generate from the current commit
+npx git-hash-art current
 
-const dataUrl = generateDataURL('46192e59d42f741c761cbea79462a8b3815dd905', {
-  width: 512,
-  height: 512,
-});
+# Generate from a specific hash
+npx git-hash-art generate <hash>
 
-document.getElementById('preview').src = dataUrl;
+# Custom size, output directory, or preset
+npx git-hash-art generate <hash> --width 1920 --height 1080 --output ./artwork
+npx git-hash-art generate <hash> --preset instagram-square
 ```
 
-### Generate a Blob (for downloads or uploads)
+## Core renderer (environment-agnostic)
 
-```javascript
-import { generateImageBlob } from 'git-hash-art/browser';
-
-const blob = await generateImageBlob('46192e59d42f741c761cbea79462a8b3815dd905', {
-  width: 1080,
-  height: 1080,
-});
-
-// Trigger a download
-const url = URL.createObjectURL(blob);
-const a = document.createElement('a');
-a.href = url;
-a.download = 'hash-art.png';
-a.click();
-```
-
-## Core Renderer (Environment-Agnostic)
-
-If you need full control, both entry points re-export `renderHashArt` which
-accepts any standard `CanvasRenderingContext2D` — useful for custom canvas
-setups, Web Workers with `OffscreenCanvas`, or server-side rendering
-frameworks.
+Both entry points re-export `renderHashArt`, which accepts any standard `CanvasRenderingContext2D` — useful for `OffscreenCanvas` in Web Workers, custom canvas setups, or server-side rendering frameworks.
 
 ```javascript
 import { renderHashArt } from 'git-hash-art'; // or 'git-hash-art/browser'
@@ -139,67 +114,69 @@ renderHashArt(ctx, '46192e59d42f741c761cbea79462a8b3815dd905', {
 });
 ```
 
-## Configuration Options
+## Configuration
 
-| Option            | Type   | Default | Description                                          |
-| ----------------- | ------ | ------- | ---------------------------------------------------- |
-| `width`           | number | 2048    | Canvas width in pixels                               |
-| `height`          | number | 2048    | Canvas height in pixels                              |
-| `gridSize`        | number | 5       | Controls base shape count per layer (gridSize² × 1.5)|
-| `layers`          | number | 4       | Number of layers to generate                         |
-| `shapesPerLayer`  | number | auto    | Base shapes per layer (defaults to gridSize² × 1.5)  |
-| `minShapeSize`    | number | 30      | Minimum shape size in pixels (scaled to canvas)      |
-| `maxShapeSize`    | number | 400     | Maximum shape size in pixels (scaled to canvas)      |
-| `baseOpacity`     | number | 0.7     | Starting opacity for the first layer                 |
-| `opacityReduction`| number | 0.12    | Opacity reduction per layer                          |
+Every option is optional — the archetype system picks tuned values per hash, and explicit config always wins over archetype defaults.
 
-## Shape Categories
+| Option             | Type   | Default | Description                                           |
+| ------------------ | ------ | ------- | ----------------------------------------------------- |
+| `width`            | number | 2048    | Canvas width in pixels                                |
+| `height`           | number | 2048    | Canvas height in pixels                               |
+| `gridSize`         | number | auto    | Controls base shape count per layer (gridSize² × 1.5) |
+| `layers`           | number | auto    | Number of rendering layers                            |
+| `shapesPerLayer`   | number | auto    | Base shapes per layer (defaults to gridSize² × 1.5)   |
+| `minShapeSize`     | number | auto    | Minimum shape size in pixels (scaled to canvas)       |
+| `maxShapeSize`     | number | auto    | Maximum shape size in pixels (scaled to canvas)       |
+| `baseOpacity`      | number | auto    | Starting opacity for the first layer                  |
+| `opacityReduction` | number | auto    | Opacity reduction per layer                           |
+| `customShapes`     | object | —       | Your own shapes, merged into the generation (below)   |
 
-Shapes are selected with layer-aware weighting — early layers favor simple shapes for background texture, later layers favor intricate ones for foreground detail.
+## Custom shapes
 
-**Basic** — circle, square, triangle, hexagon, star, diamond, cube, heart
-
-**Complex** — platonic solids, fibonacci spiral, islamic pattern, celtic knot, merkaba, mandala, fractal
-
-**Sacred Geometry** — flower of life, tree of life, Metatron's cube, Sri Yantra, seed of life, vesica piscis, torus, egg of life
-
-## Preset Sizes
+Register your own geometry and it participates in everything — palette selection, affinity matching, render styles, nesting, echoes:
 
 ```javascript
-import { PRESETS } from 'git-hash-art';
+import { generateImageFromHash } from 'git-hash-art';
 
-// Use a preset's hash and config
+const imageBuffer = generateImageFromHash(hash, {
+  customShapes: {
+    lightning: {
+      // Build a path centered on the origin — the pipeline handles
+      // translate/rotate/fill/stroke. Use the provided rng (seeded
+      // from the hash) instead of Math.random() to stay deterministic.
+      draw: (ctx, size, rng) => {
+        const s = size / 2;
+        ctx.moveTo(-s * 0.2, -s);
+        ctx.lineTo(s * (0.1 + rng() * 0.2), -s * 0.1);
+        ctx.lineTo(-s * 0.1, -s * 0.1);
+        ctx.lineTo(s * 0.2, s);
+        ctx.lineTo(-s * (0.1 + rng() * 0.2), s * 0.1);
+        ctx.lineTo(s * 0.1, s * 0.1);
+        ctx.closePath();
+      },
+      profile: {
+        tier: 1,
+        heroCandidate: true,
+        affinities: ['star', 'triangle'],
+        bestStyles: ['fill-and-stroke', 'double-stroke'],
+      },
+    },
+  },
+});
+```
+
+## Preset sizes
+
+```javascript
+import { PRESETS, generateImageFromHash } from 'git-hash-art';
+
 const preset = PRESETS['instagram-square'];
 const imageBuffer = generateImageFromHash(preset.hash, preset);
 ```
 
-Available presets:
+Standard (1024²) · Banner (1920×480) · Ultrawide (3440×1440) · Instagram Square & Story · Twitter Header · LinkedIn Banner · Phone & Tablet Wallpaper · Minimal & Complex configurations
 
-- Standard (1024×1024)
-- Banner (1920×480)
-- Ultrawide (3440×1440)
-- Instagram Square (1080×1080)
-- Instagram Story (1080×1920)
-- Twitter Header (1500×500)
-- LinkedIn Banner (1584×396)
-- Phone Wallpaper (1170×2532)
-- Tablet Wallpaper (2048×2732)
-- Minimal, Complex (special configurations)
-
-## CLI Usage
-
-```bash
-# Generate from the current commit
-npx git-hash-art current
-
-# Generate from a specific hash
-npx git-hash-art generate <hash>
-
-# Custom size
-npx git-hash-art generate <hash> --width 1920 --height 1080
-```
-
-## Integration Examples
+## Integration recipes
 
 ### GitHub Actions
 
@@ -210,13 +187,13 @@ jobs:
   generate-art:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
       - run: npm install git-hash-art @napi-rs/canvas
       - run: npx git-hash-art current --output artwork/
 ```
 
-### Git Hooks
+### Git hook
 
 ```bash
 #!/bin/sh
@@ -225,7 +202,7 @@ hash=$(git rev-parse HEAD)
 npx git-hash-art generate $hash --output .git/artwork/
 ```
 
-### React Component
+### React component
 
 ```jsx
 import { useEffect, useRef } from 'react';
@@ -244,10 +221,17 @@ function CommitArt({ hash, width = 256, height = 256 }) {
 }
 ```
 
+## Use cases
+
+- **Commit / release art** — a visual identity for every version you ship
+- **Deterministic avatars & placeholders** — hash any string (user IDs, file digests) for stable, unique imagery
+- **Repo identicons** — like the [gallery](https://git-hash-art.griffen.codes), give every project a face
+- **Wallpapers & social banners** — built-in presets for every common size
+
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guidelines](CONTRIBUTING.md) for more details.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The rendering pipeline is documented in depth in [ALGORITHM.md](ALGORITHM.md) if you want to understand (or extend) how images are made.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+[MIT](LICENSE) © [Griffen Fargo](https://github.com/gfargo)
