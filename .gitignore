@@ -163,3 +163,5 @@ dist
 
 # examples
 examples/
+
+.www
