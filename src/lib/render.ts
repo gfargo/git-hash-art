@@ -44,6 +44,8 @@ import {
   pickMirrorAxis,
   pickBlendMode,
   pickRenderStyle,
+  RENDER_STYLE_COST,
+  downgradeRenderStyle,
   type RenderStyle,
 } from "./canvas/draw";
 import { shapes } from "./canvas/shapes";
@@ -66,49 +68,9 @@ import {
   type CompositionMode,
 } from "./archetypes";
 
-// ── Render style cost weights (normalized: fill-and-stroke = 1) ─────
-// Based on benchmark measurements. Used by the complexity budget to
-// cap total rendering work and downgrade expensive styles when needed.
-const RENDER_STYLE_COST: Record<RenderStyle, number> = {
-  "fill-and-stroke": 1,
-  "fill-only": 0.5,
-  "stroke-only": 1,
-  "double-stroke": 1.5,
-  dashed: 1,
-  watercolor: 7,
-  hatched: 3,
-  incomplete: 1,
-  stipple: 90,
-  stencil: 2,
-  "noise-grain": 400,
-  "wood-grain": 10,
-  "marble-vein": 4,
-  "fabric-weave": 6,
-  "hand-drawn": 5,
-  "ink-bleed": 3,
-  drip: 1.5,
-};
-
-function downgradeRenderStyle(style: RenderStyle): RenderStyle {
-  switch (style) {
-    case "noise-grain":
-      return "hatched";
-    case "stipple":
-      return "dashed";
-    case "wood-grain":
-      return "hatched";
-    case "watercolor":
-      return "fill-and-stroke";
-    case "fabric-weave":
-      return "hatched";
-    case "hand-drawn":
-      return "fill-and-stroke";
-    case "marble-vein":
-      return "stroke-only";
-    default:
-      return style;
-  }
-}
+// Render style cost weights and downgrade mapping are shared with
+// draw.ts (RENDER_STYLE_COST / downgradeRenderStyle imports above) —
+// a private copy here previously risked drifting from the real one.
 
 // ── Shape categories for weighted selection (legacy fallback) ───────
 
@@ -874,15 +836,19 @@ export function renderHashArt(
         ]
       : ALL_COMPOSITION_MODES[Math.floor(rng() * ALL_COMPOSITION_MODES.length)];
 
-  // ── 2b. Symmetry mode — ~25% of hashes trigger mirroring ──────
+  // ── 2b. Symmetry mode — ~15% of hashes trigger mirroring ──────
+  // Now that the mirror blit actually lands at full alpha (it was
+  // previously ghosted to near-invisibility by leftover globalAlpha),
+  // hard Rorschach symmetry is a strong statement — kept rarer so it
+  // stays special.
   type SymmetryMode = "none" | "bilateral-x" | "bilateral-y" | "quad";
   const symRoll = rng();
   const symmetryMode: SymmetryMode =
-    symRoll < 0.1
+    symRoll < 0.06
       ? "bilateral-x"
-      : symRoll < 0.2
+      : symRoll < 0.12
         ? "bilateral-y"
-        : symRoll < 0.25
+        : symRoll < 0.15
           ? "quad"
           : "none";
 
@@ -2368,6 +2334,10 @@ export function renderHashArt(
   _mark("6b_energy_lines");
 
   // ── 6c. Apply symmetry mirroring ─────────────────────────────────
+  // Reset alpha: the flow/energy passes leave a low globalAlpha, which
+  // previously made the mirror blit a near-invisible ghost — symmetry
+  // never actually appeared despite being selected.
+  ctx.globalAlpha = 1;
   if (symmetryMode !== "none") {
     const canvas = ctx.canvas;
     ctx.save();

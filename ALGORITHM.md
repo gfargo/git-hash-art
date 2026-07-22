@@ -362,10 +362,12 @@ This produces the same phyllotactic pattern seen in sunflower seed heads and pin
 
 ### Symmetry
 
-~25% of hashes trigger symmetry mirroring, applied after all shapes and flow lines are drawn:
-- **bilateral-x (10%):** Left half mirrored to right
-- **bilateral-y (10%):** Top half mirrored to bottom
-- **quad (5%):** Both axes mirrored
+~15% of hashes trigger symmetry mirroring, applied after all shapes and flow lines are drawn:
+- **bilateral-x (6%):** Left half mirrored to right
+- **bilateral-y (6%):** Top half mirrored to bottom
+- **quad (3%):** Both axes mirrored
+
+The mirror blit runs at full alpha, producing hard Rorschach/kaleidoscope symmetry. (A long-standing bug left the flow-line passes' low `globalAlpha` active during the blit, ghosting the mirror to near-invisibility — symmetry was selected but never visible. Now that it genuinely lands, the trigger rate is kept low so inkblot pieces stay special.)
 
 Symmetry is applied by drawing the canvas image onto itself with `scale(-1, 1)` or `scale(1, -1)` transforms.
 
