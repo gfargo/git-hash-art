@@ -16,11 +16,41 @@ export const BLEND_MODES: GlobalCompositeOperation[] = [
   "lighter",
 ];
 
+// Curated blend pools — modes that flatter each background family.
+// Multiply on a dark background produces invisible smears; screen on a
+// light background washes out.  Restricting the pool keeps layers legible.
+const LIGHT_BG_BLENDS: GlobalCompositeOperation[] = [
+  "source-over",
+  "source-over",
+  "source-over",
+  "multiply",
+  "multiply",
+  "soft-light",
+];
+const DARK_BG_BLENDS: GlobalCompositeOperation[] = [
+  "source-over",
+  "source-over",
+  "source-over",
+  "screen",
+  "screen",
+  "lighter",
+  "soft-light",
+];
+
 /**
  * Pick a blend mode deterministically from the RNG.
+ * When `bgLuminance` is provided the choice is restricted to modes that
+ * suit the background (multiply-family on light, screen-family on dark).
  * ~40% chance of default source-over to keep some images clean.
  */
-export function pickBlendMode(rng: () => number): GlobalCompositeOperation {
+export function pickBlendMode(
+  rng: () => number,
+  bgLuminance?: number,
+): GlobalCompositeOperation {
+  if (bgLuminance !== undefined) {
+    const pool = bgLuminance > 0.5 ? LIGHT_BG_BLENDS : DARK_BG_BLENDS;
+    return pool[Math.floor(rng() * pool.length)];
+  }
   if (rng() < 0.4) return "source-over";
   return BLEND_MODES[1 + Math.floor(rng() * (BLEND_MODES.length - 1))];
 }
@@ -28,25 +58,27 @@ export function pickBlendMode(rng: () => number): GlobalCompositeOperation {
 // ── Shape rendering styles (Feature C) ──────────────────────────────
 
 export type RenderStyle =
-  | "fill-and-stroke"  // classic (current behavior)
-  | "fill-only"        // soft, no outline
-  | "stroke-only"      // wireframe
-  | "double-stroke"    // inner + outer stroke
-  | "dashed"           // dashed outline
-  | "watercolor"       // multiple offset passes at low opacity
-  | "hatched"          // cross-hatch texture fill
-  | "incomplete"       // draw only 60-85% of the stroke path
-  | "stipple"          // dot-fill texture
-  | "stencil"          // negative-space cutout effect
-  | "noise-grain"      // procedural noise grain texture clipped to shape
-  | "wood-grain"       // parallel wavy lines simulating wood
-  | "marble-vein"      // branching vein lines on a soft fill
-  | "fabric-weave"     // interlocking horizontal/vertical threads
-  | "hand-drawn";      // wobbly hand-drawn edge treatment
+  | "fill-and-stroke" // classic (current behavior)
+  | "fill-only" // soft, no outline
+  | "stroke-only" // wireframe
+  | "double-stroke" // inner + outer stroke
+  | "dashed" // dashed outline
+  | "watercolor" // multiple offset passes at low opacity
+  | "hatched" // cross-hatch texture fill
+  | "incomplete" // draw only 60-85% of the stroke path
+  | "stipple" // dot-fill texture
+  | "stencil" // negative-space cutout effect
+  | "noise-grain" // procedural noise grain texture clipped to shape
+  | "wood-grain" // parallel wavy lines simulating wood
+  | "marble-vein" // branching vein lines on a soft fill
+  | "fabric-weave" // interlocking horizontal/vertical threads
+  | "hand-drawn" // wobbly hand-drawn edge treatment
+  | "ink-bleed" // wet ink wicking into paper fibers
+  | "drip"; // gravity-pulled paint runs with terminal droplets
 
 const RENDER_STYLES: RenderStyle[] = [
   "fill-and-stroke",
-  "fill-and-stroke",  // weighted: appears twice for higher probability
+  "fill-and-stroke", // weighted: appears twice for higher probability
   "fill-only",
   "stroke-only",
   "double-stroke",
@@ -55,12 +87,16 @@ const RENDER_STYLES: RenderStyle[] = [
   "hatched",
   "incomplete",
   "stipple",
-  "stencil",
+  // "stencil" is intentionally absent from the random pool — its filled
+  // bounding rectangle reads as a glitch block in most contexts. The
+  // style remains implemented and reachable via explicit config.
   "noise-grain",
   "wood-grain",
   "marble-vein",
   "fabric-weave",
   "hand-drawn",
+  "ink-bleed",
+  "drip",
 ];
 
 export function pickRenderStyle(rng: () => number): RenderStyle {
@@ -73,20 +109,22 @@ export function pickRenderStyle(rng: () => number): RenderStyle {
  */
 export const RENDER_STYLE_COST: Record<RenderStyle, number> = {
   "fill-and-stroke": 1,
-  "fill-only":       0.5,
-  "stroke-only":     1,
-  "double-stroke":   1.5,
-  "dashed":          1,
-  "watercolor":      7,
-  "hatched":         3,
-  "incomplete":      1,
-  "stipple":         90,
-  "stencil":         2,
-  "noise-grain":     400,
-  "wood-grain":      10,
-  "marble-vein":     4,
-  "fabric-weave":    6,
-  "hand-drawn":      5,
+  "fill-only": 0.5,
+  "stroke-only": 1,
+  "double-stroke": 1.5,
+  dashed: 1,
+  watercolor: 7,
+  hatched: 3,
+  incomplete: 1,
+  stipple: 90,
+  stencil: 2,
+  "noise-grain": 400,
+  "wood-grain": 10,
+  "marble-vein": 4,
+  "fabric-weave": 6,
+  "hand-drawn": 5,
+  "ink-bleed": 3,
+  drip: 1.5,
 };
 
 /**
@@ -95,14 +133,22 @@ export const RENDER_STYLE_COST: Record<RenderStyle, number> = {
  */
 export function downgradeRenderStyle(style: RenderStyle): RenderStyle {
   switch (style) {
-    case "noise-grain": return "hatched";
-    case "stipple":     return "dashed";
-    case "wood-grain":  return "hatched";
-    case "watercolor":  return "fill-and-stroke";
-    case "fabric-weave": return "hatched";
-    case "hand-drawn":  return "fill-and-stroke";
-    case "marble-vein": return "stroke-only";
-    default:            return style;
+    case "noise-grain":
+      return "hatched";
+    case "stipple":
+      return "dashed";
+    case "wood-grain":
+      return "hatched";
+    case "watercolor":
+      return "fill-and-stroke";
+    case "fabric-weave":
+      return "hatched";
+    case "hand-drawn":
+      return "fill-and-stroke";
+    case "marble-vein":
+      return "stroke-only";
+    default:
+      return style;
   }
 }
 
@@ -135,7 +181,10 @@ interface EnhanceShapeConfig extends DrawShapeConfig {
   /** Scale factor for resolution-independent sizing. */
   scaleFactor?: number;
   /** Optional combined shapes registry (includes custom shapes). Falls back to built-in shapes. */
-  activeShapes?: Record<string, (ctx: CanvasRenderingContext2D, size: number, config?: any) => void>;
+  activeShapes?: Record<
+    string,
+    (ctx: CanvasRenderingContext2D, size: number, config?: any) => void
+  >;
 }
 
 export function drawShape(
@@ -143,9 +192,15 @@ export function drawShape(
   shape: string,
   x: number,
   y: number,
-  config: DrawShapeConfig & { activeShapes?: Record<string, (ctx: CanvasRenderingContext2D, size: number, config?: any) => void> },
+  config: DrawShapeConfig & {
+    activeShapes?: Record<
+      string,
+      (ctx: CanvasRenderingContext2D, size: number, config?: any) => void
+    >;
+  },
 ) {
-  const { fillColor, strokeColor, strokeWidth, size, rotation, activeShapes } = config;
+  const { fillColor, strokeColor, strokeWidth, size, rotation, activeShapes } =
+    config;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate((rotation * Math.PI) / 180);
@@ -175,6 +230,7 @@ function applyRenderStyle(
   strokeWidth: number,
   size: number,
   rng?: () => number,
+  rotationDeg = 0,
 ): void {
   switch (style) {
     case "fill-only":
@@ -224,10 +280,10 @@ function applyRenderStyle(
       ctx.restore();
 
       // Pass 2: Multiple offset washes with radial displacement
-      ctx.globalAlpha = savedAlpha * (0.25 / passes * 2);
+      ctx.globalAlpha = savedAlpha * ((0.25 / passes) * 2);
       for (let p = 0; p < passes; p++) {
         // Radial outward displacement (not uniform) for organic bleed
-        const angle = rng ? rng() * Math.PI * 2 : p * Math.PI / 2;
+        const angle = rng ? rng() * Math.PI * 2 : (p * Math.PI) / 2;
         const dist = rng ? rng() * size * 0.05 : size * 0.02;
         const jx = Math.cos(angle) * dist;
         const jy = Math.sin(angle) * dist;
@@ -270,7 +326,9 @@ function applyRenderStyle(
           ctx.arc(
             Math.cos(biteAngle) * biteDist,
             Math.sin(biteAngle) * biteDist,
-            biteR, 0, Math.PI * 2,
+            biteR,
+            0,
+            Math.PI * 2,
           );
           ctx.fill();
         }
@@ -371,7 +429,10 @@ function applyRenderStyle(
       const dotSpacing = Math.max(2, size * 0.03);
       const extentS = size * 0.55;
       // Cap total dots: beyond ~900 (30×30 grid) the visual density plateaus
-      const maxDotsPerAxis = Math.min(Math.ceil((extentS * 2) / dotSpacing), 30);
+      const maxDotsPerAxis = Math.min(
+        Math.ceil((extentS * 2) / dotSpacing),
+        30,
+      );
       const actualSpacing = (extentS * 2) / maxDotsPerAxis;
       ctx.globalAlpha = savedAlphaS * 0.7;
       for (let xi = 0; xi < maxDotsPerAxis; xi++) {
@@ -380,7 +441,9 @@ function applyRenderStyle(
           const dy = -extentS + yi * actualSpacing;
           const jx = rng ? (rng() - 0.5) * actualSpacing * 0.6 : 0;
           const jy = rng ? (rng() - 0.5) * actualSpacing * 0.6 : 0;
-          const dotD = rng ? actualSpacing * (0.3 + rng() * 0.4) : actualSpacing * 0.4;
+          const dotD = rng
+            ? actualSpacing * (0.3 + rng() * 0.4)
+            : actualSpacing * 0.4;
           ctx.fillRect(dx + jx - dotD * 0.5, dy + jy - dotD * 0.5, dotD, dotD);
         }
       }
@@ -431,7 +494,10 @@ function applyRenderStyle(
       if (rng) {
         // Cap grid to max 40 dots per axis — beyond this the grain is
         // visually indistinguishable but cost scales quadratically.
-        const maxGrainPerAxis = Math.min(Math.ceil((extentN * 2) / grainSpacing), 40);
+        const maxGrainPerAxis = Math.min(
+          Math.ceil((extentN * 2) / grainSpacing),
+          40,
+        );
         const actualGrainSpacing = (extentN * 2) / maxGrainPerAxis;
 
         // 4 alpha buckets: 0.2, 0.3, 0.4, 0.5 — covers the 0.15-0.50 range
@@ -451,9 +517,16 @@ function applyRenderStyle(
             const isWhite = rng() > 0.5;
             const dotAlpha = bucketMin + rng() * bucketRange;
             const dotSize = actualGrainSpacing * (0.3 + rng() * 0.5);
-            const bucketIdx = Math.min(BUCKETS - 1, Math.floor((dotAlpha - bucketMin) / bucketRange * BUCKETS));
+            const bucketIdx = Math.min(
+              BUCKETS - 1,
+              Math.floor(((dotAlpha - bucketMin) / bucketRange) * BUCKETS),
+            );
             const offset = isWhite ? BUCKETS : 0;
-            buckets[offset + bucketIdx].push({ x: gx + jx, y: gy + jy, s: dotSize });
+            buckets[offset + bucketIdx].push({
+              x: gx + jx,
+              y: gy + jy,
+              s: dotSize,
+            });
           }
         }
 
@@ -463,7 +536,7 @@ function applyRenderStyle(
           for (let b = 0; b < BUCKETS; b++) {
             const dots = buckets[color * BUCKETS + b];
             if (dots.length === 0) continue;
-            const alpha = bucketMin + (b + 0.5) / BUCKETS * bucketRange;
+            const alpha = bucketMin + ((b + 0.5) / BUCKETS) * bucketRange;
             ctx.globalAlpha = savedAlphaN * alpha;
             for (let i = 0; i < dots.length; i++) {
               ctx.fillRect(dots[i].x, dots[i].y, dots[i].s, dots[i].s);
@@ -513,7 +586,10 @@ function applyRenderStyle(
         );
         for (let t = -extentW + 4; t <= extentW; t += 4) {
           const wave = Math.sin(t * invExtentW * waveCoeff) * waveAmp;
-          ctx.lineTo(t * cosG - (d + wave) * sinG, t * sinG + (d + wave) * cosG);
+          ctx.lineTo(
+            t * cosG - (d + wave) * sinG,
+            t * sinG + (d + wave) * cosG,
+          );
         }
       }
       ctx.stroke();
@@ -664,7 +740,9 @@ function applyRenderStyle(
           ctx.arc(
             Math.cos(biteAngle) * biteDist,
             Math.sin(biteAngle) * biteDist,
-            biteR, 0, Math.PI * 2,
+            biteR,
+            0,
+            Math.PI * 2,
           );
           ctx.fill();
         }
@@ -672,6 +750,136 @@ function applyRenderStyle(
       }
 
       ctx.globalAlpha = savedAlphaHD;
+      break;
+    }
+
+    case "ink-bleed": {
+      // Wet ink wicking into paper fibers: an uneven multi-pass core,
+      // tapered fiber wisps escaping the boundary, pooled pigment along
+      // one side, and a few satellite droplets.
+      const savedAlphaB = ctx.globalAlpha;
+
+      // Core: three offset fills, each drifting a little — the puddle
+      ctx.globalAlpha = savedAlphaB * 0.4;
+      for (let p = 0; p < 3; p++) {
+        const angle = rng ? rng() * Math.PI * 2 : (p * Math.PI * 2) / 3;
+        const dist = rng ? rng() * size * 0.035 : size * 0.02;
+        ctx.save();
+        ctx.translate(Math.cos(angle) * dist, Math.sin(angle) * dist);
+        const s = 1 + (rng ? (rng() - 0.5) * 0.06 : 0);
+        ctx.scale(s, s);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Pooled pigment: a darker crescent-side pass, offset toward one
+      // angle — ink dries denser where it settled
+      const poolAngle = rng ? rng() * Math.PI * 2 : 0;
+      ctx.globalAlpha = savedAlphaB * 0.3;
+      ctx.save();
+      ctx.translate(
+        Math.cos(poolAngle) * size * 0.05,
+        Math.sin(poolAngle) * size * 0.05,
+      );
+      ctx.scale(0.92, 0.92);
+      ctx.fill();
+      ctx.restore();
+
+      // Fiber wisps: tapered strokes wicking outward along paper grain
+      if (rng && size > 16) {
+        const fiberCount = 7 + Math.floor(rng() * 8);
+        const edgeR = size * 0.44;
+        ctx.strokeStyle = fillColor;
+        ctx.lineCap = "round";
+        for (let fq = 0; fq < fiberCount; fq++) {
+          const fa = rng() * Math.PI * 2;
+          const wickLen = size * (0.05 + rng() * 0.13);
+          const curl = (rng() - 0.5) * 0.9;
+          const x0 = Math.cos(fa) * edgeR * (0.9 + rng() * 0.15);
+          const y0 = Math.sin(fa) * edgeR * (0.9 + rng() * 0.15);
+          const midA = fa + curl * 0.5;
+          const x1 = x0 + Math.cos(midA) * wickLen * 0.6;
+          const y1 = y0 + Math.sin(midA) * wickLen * 0.6;
+          const x2 = x0 + Math.cos(fa + curl) * wickLen;
+          const y2 = y0 + Math.sin(fa + curl) * wickLen;
+          ctx.globalAlpha = savedAlphaB * (0.12 + rng() * 0.15);
+          ctx.lineWidth = Math.max(0.4, strokeWidth * (0.4 + rng() * 0.5));
+          ctx.beginPath();
+          ctx.moveTo(x0, y0);
+          ctx.quadraticCurveTo(x1, y1, x2, y2);
+          ctx.stroke();
+        }
+
+        // Satellite droplets — flicked specks beyond the boundary
+        const dropCount = 2 + Math.floor(rng() * 4);
+        ctx.fillStyle = fillColor;
+        ctx.globalAlpha = savedAlphaB * 0.5;
+        ctx.beginPath();
+        for (let d = 0; d < dropCount; d++) {
+          const da = rng() * Math.PI * 2;
+          const dd = size * (0.5 + rng() * 0.28);
+          const dr = size * (0.006 + rng() * 0.016);
+          const dx = Math.cos(da) * dd;
+          const dy = Math.sin(da) * dd;
+          ctx.moveTo(dx + dr, dy);
+          ctx.arc(dx, dy, dr, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = savedAlphaB;
+      break;
+    }
+
+    case "drip": {
+      // Fill + stroke, then gravity: paint runs downward in canvas
+      // space (the context is rotated, so "down" must be un-rotated),
+      // wavering as it falls and ending in a terminal droplet.
+      const savedAlphaD = ctx.globalAlpha;
+      ctx.fill();
+      ctx.globalAlpha = savedAlphaD * 0.6;
+      ctx.stroke();
+      ctx.globalAlpha = savedAlphaD;
+
+      if (rng && size > 24) {
+        const rot = (rotationDeg * Math.PI) / 180;
+        // Canvas-down expressed in this rotated local frame
+        const downX = Math.sin(rot);
+        const downY = Math.cos(rot);
+        const dripCount = 2 + Math.floor(rng() * 3);
+        ctx.strokeStyle = fillColor;
+        ctx.fillStyle = fillColor;
+        ctx.lineCap = "round";
+        for (let d = 0; d < dripCount; d++) {
+          // Start on the down-facing edge with lateral spread
+          const lateral = (rng() - 0.5) * size * 0.6;
+          let dx = downX * size * 0.4 - downY * lateral;
+          let dy = downY * size * 0.4 + downX * lateral;
+          const runLen = size * (0.18 + rng() * 0.4);
+          const segments = 6 + Math.floor(rng() * 5);
+          let w = Math.max(0.6, strokeWidth * (0.8 + rng() * 0.8));
+          ctx.globalAlpha = savedAlphaD * (0.45 + rng() * 0.25);
+          for (let sgi = 0; sgi < segments; sgi++) {
+            const wobble = (rng() - 0.5) * size * 0.03;
+            const nx = dx + downX * (runLen / segments) - downY * wobble;
+            const ny = dy + downY * (runLen / segments) + downX * wobble;
+            ctx.lineWidth = w;
+            ctx.beginPath();
+            ctx.moveTo(dx, dy);
+            ctx.lineTo(nx, ny);
+            ctx.stroke();
+            w *= 0.88;
+            dx = nx;
+            dy = ny;
+          }
+          // Terminal droplet where the run stopped
+          const dropR = Math.max(0.8, w * 2.2);
+          ctx.beginPath();
+          ctx.arc(dx, dy, dropR, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = savedAlphaD;
+      }
       break;
     }
 
@@ -727,7 +935,7 @@ export function enhanceShapeGeneration(
     ctx.shadowOffsetX = Math.cos(lightAngle + Math.PI) * shadowDist;
     ctx.shadowOffsetY = Math.sin(lightAngle + Math.PI) * shadowDist;
     ctx.shadowBlur = shadowBlurR;
-    ctx.shadowColor = "rgba(0,0,0,0.12)";
+    ctx.shadowColor = "rgba(0,0,0,0.09)";
   } else if (useShadow && glowRadius > 0) {
     // Glow / shadow effect (legacy path)
     ctx.shadowBlur = glowRadius;
@@ -753,7 +961,16 @@ export function enhanceShapeGeneration(
   const drawFunction = registry[shape];
   if (drawFunction) {
     drawFunction(ctx, size, { rng });
-    applyRenderStyle(ctx, renderStyle, fillColor, strokeColor, strokeWidth, size, rng);
+    applyRenderStyle(
+      ctx,
+      renderStyle,
+      fillColor,
+      strokeColor,
+      strokeWidth,
+      size,
+      rng,
+      rotation,
+    );
   }
 
   // Reset shadow so patterns and highlight aren't double-shadowed
@@ -847,11 +1064,17 @@ export function drawMirroredShape(
       break;
     case "diagonal":
       // Reflect across 45° axis
-      enhanceShapeGeneration(ctx, shape, x + mirrorGap * 0.7, y + mirrorGap * 0.7, {
-        ...config,
-        rotation: 90 - (config.rotation || 0),
-        size: config.size * 0.9,
-      });
+      enhanceShapeGeneration(
+        ctx,
+        shape,
+        x + mirrorGap * 0.7,
+        y + mirrorGap * 0.7,
+        {
+          ...config,
+          rotation: 90 - (config.rotation || 0),
+          size: config.size * 0.9,
+        },
+      );
       break;
     case "radial-4":
       // Four-way radial mirror
@@ -879,7 +1102,7 @@ export function drawMirroredShape(
  */
 export function pickMirrorAxis(rng: () => number): MirrorAxis | null {
   const roll = rng();
-  if (roll < 0.60) return null;
+  if (roll < 0.6) return null;
   if (roll < 0.75) return "horizontal";
   if (roll < 0.87) return "vertical";
   if (roll < 0.95) return "diagonal";

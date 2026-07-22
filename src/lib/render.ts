@@ -23,68 +23,54 @@
  *   10. Post-processing — color grading, chromatic aberration, bloom
  */
 import {
-    SacredColorScheme,
-    hexWithAlpha, jitterColorHSL,
-    desaturate,
-    shiftTemperature,
-    luminance,
-    enforceContrast,
-    buildColorHierarchy,
-    pickHierarchyColor, pickColorGrade,
-    evolveHierarchy, type ColorHierarchy
+  SacredColorScheme,
+  hexWithAlpha,
+  jitterColorHSL,
+  desaturate,
+  shiftTemperature,
+  luminance,
+  enforceContrast,
+  adjustSaturation,
+  adjustLightness,
+  buildColorHierarchy,
+  pickHierarchyColor,
+  pickColorGrade,
+  evolveHierarchy,
+  type ColorHierarchy,
 } from "./canvas/colors";
 import {
-    enhanceShapeGeneration,
-    drawMirroredShape,
-    pickMirrorAxis,
-    pickBlendMode,
-    pickRenderStyle, type RenderStyle
+  enhanceShapeGeneration,
+  drawMirroredShape,
+  pickMirrorAxis,
+  pickBlendMode,
+  pickRenderStyle,
+  RENDER_STYLE_COST,
+  downgradeRenderStyle,
+  type RenderStyle,
 } from "./canvas/draw";
 import { shapes } from "./canvas/shapes";
 import {
-    buildShapePalette,
-    pickShapeFromPalette,
-    pickStyleForShape,
-    SHAPE_PROFILES
+  buildShapePalette,
+  pickShapeFromPalette,
+  pickStyleForShape,
+  SHAPE_PROFILES,
 } from "./canvas/shapes/affinity";
-import { createRng, seedFromHash, createSimplexNoise, createFBM } from "./utils";
+import {
+  createRng,
+  seedFromHash,
+  createSimplexNoise,
+  createFBM,
+} from "./utils";
 import { DEFAULT_CONFIG, type GenerationConfig } from "../types";
-import { selectArchetype, type BackgroundStyle, type CompositionMode } from "./archetypes";
+import {
+  selectArchetype,
+  type BackgroundStyle,
+  type CompositionMode,
+} from "./archetypes";
 
-// ── Render style cost weights (normalized: fill-and-stroke = 1) ─────
-// Based on benchmark measurements. Used by the complexity budget to
-// cap total rendering work and downgrade expensive styles when needed.
-const RENDER_STYLE_COST: Record<RenderStyle, number> = {
-  "fill-and-stroke": 1,
-  "fill-only":       0.5,
-  "stroke-only":     1,
-  "double-stroke":   1.5,
-  "dashed":          1,
-  "watercolor":      7,
-  "hatched":         3,
-  "incomplete":      1,
-  "stipple":         90,
-  "stencil":         2,
-  "noise-grain":     400,
-  "wood-grain":      10,
-  "marble-vein":     4,
-  "fabric-weave":    6,
-  "hand-drawn":      5,
-};
-
-function downgradeRenderStyle(style: RenderStyle): RenderStyle {
-  switch (style) {
-    case "noise-grain": return "hatched";
-    case "stipple":     return "dashed";
-    case "wood-grain":  return "hatched";
-    case "watercolor":  return "fill-and-stroke";
-    case "fabric-weave": return "hatched";
-    case "hand-drawn":  return "fill-and-stroke";
-    case "marble-vein": return "stroke-only";
-    default:            return style;
-  }
-}
-
+// Render style cost weights and downgrade mapping are shared with
+// draw.ts (RENDER_STYLE_COST / downgradeRenderStyle imports above) —
+// a private copy here previously risked drifting from the real one.
 
 // ── Shape categories for weighted selection (legacy fallback) ───────
 
@@ -126,15 +112,17 @@ function getCompositionPosition(
   switch (mode) {
     case "radial": {
       const angle = rng() * Math.PI * 2;
-      const maxR = Math.min(width, height) * 0.45;
-      const r = Math.pow(rng(), 0.7) * maxR;
+      // Wide reach: placements extend to (and past) the frame edge so the
+      // composition engages the canvas boundary instead of floating centered
+      const maxR = Math.min(width, height) * 0.58;
+      const r = Math.pow(rng(), 0.72) * maxR;
       return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     }
     case "spiral": {
       const t = shapeIndex / totalShapes;
       const turns = 3 + rng() * 2;
       const angle = t * Math.PI * 2 * turns;
-      const maxR = Math.min(width, height) * 0.42;
+      const maxR = Math.min(width, height) * 0.55;
       const r = t * maxR + (rng() - 0.5) * maxR * 0.15;
       return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
     }
@@ -168,10 +156,10 @@ function getCompositionPosition(
     case "golden-spiral": {
       // Logarithmic spiral: r = a * e^(b*theta), with golden angle spacing
       const PHI = (1 + Math.sqrt(5)) / 2;
-      const goldenAngle = 2 * Math.PI / (PHI * PHI); // ~137.5° in radians
+      const goldenAngle = (2 * Math.PI) / (PHI * PHI); // ~137.5° in radians
       const t = shapeIndex / totalShapes;
       const angle = shapeIndex * goldenAngle + rng() * 0.3;
-      const maxR = Math.min(width, height) * 0.44;
+      const maxR = Math.min(width, height) * 0.58;
       // Shapes spiral outward with sqrt distribution for even area coverage
       const r = Math.sqrt(t) * maxR + (rng() - 0.5) * maxR * 0.08;
       return { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
@@ -188,20 +176,30 @@ function getPositionalColor(
   height: number,
   hierarchy: ColorHierarchy,
   rng: () => number,
+  anchorX?: number,
+  anchorY?: number,
 ): string {
-  // Blend position into color selection — shapes near center lean dominant
-  const distFromCenter = Math.hypot(x - width / 2, y - height / 2) /
-    Math.hypot(width / 2, height / 2);
-  // Center = more dominant, edges = more accent
-  if (distFromCenter < 0.35) {
-    return jitterColorHSL(hierarchy.dominant, rng, 10, 0.08);
-  } else if (distFromCenter < 0.7) {
-    return jitterColorHSL(pickHierarchyColor(hierarchy, rng), rng, 8, 0.06);
+  // Blend position into color selection — shapes near the composition
+  // anchor lean dominant, shapes at the periphery lean secondary/accent
+  const ax = anchorX ?? width / 2;
+  const ay = anchorY ?? height / 2;
+  const distFromAnchor =
+    Math.hypot(x - ax, y - ay) /
+    Math.hypot(Math.max(ax, width - ax), Math.max(ay, height - ay));
+  if (distFromAnchor < 0.35) {
+    return jitterColorHSL(hierarchy.dominant, rng, 7, 0.07);
+  } else if (distFromAnchor < 0.7) {
+    return jitterColorHSL(pickHierarchyColor(hierarchy, rng), rng, 6, 0.06);
   } else {
-    // Edges: bias toward secondary/accent
+    // Periphery: bias toward secondary/accent
     const roll = rng();
-    const color = roll < 0.4 ? hierarchy.secondary : roll < 0.75 ? hierarchy.accent : hierarchy.dominant;
-    return jitterColorHSL(color, rng, 12, 0.08);
+    const color =
+      roll < 0.4
+        ? hierarchy.secondary
+        : roll < 0.75
+          ? hierarchy.accent
+          : hierarchy.dominant;
+    return jitterColorHSL(color, rng, 8, 0.07);
   }
 }
 
@@ -221,7 +219,10 @@ function isInVoidZone(
 // ── Spatial hash grid for O(1) density checks and nearest-neighbor ──
 
 class SpatialGrid {
-  private cells: Map<string, Array<{ x: number; y: number; size: number; shape: string }>>;
+  private cells: Map<
+    string,
+    Array<{ x: number; y: number; size: number; shape: string }>
+  >;
   private cellSize: number;
 
   constructor(cellSize: number) {
@@ -265,7 +266,11 @@ class SpatialGrid {
   }
 
   /** Find nearest item to (x, y) */
-  findNearest(x: number, y: number, searchRadius: number): { x: number; y: number; size: number } | null {
+  findNearest(
+    x: number,
+    y: number,
+    searchRadius: number,
+  ): { x: number; y: number; size: number } | null {
     const minCx = Math.floor((x - searchRadius) / this.cellSize);
     const maxCx = Math.floor((x + searchRadius) / this.cellSize);
     const minCy = Math.floor((y - searchRadius) / this.cellSize);
@@ -362,10 +367,16 @@ function drawBackground(
       grad.addColorStop(0, bgStart);
       grad.addColorStop(0.33, bgEnd);
       if (colors.length > 0) {
-        const midColor = hexWithAlpha(colors[0], 1).replace(/rgba\((\d+),(\d+),(\d+),[^)]+\)/, (_, r, g, b) => {
-          const darken = (v: string) => Math.round(parseInt(v) * 0.4).toString(16).padStart(2, "0");
-          return `#${darken(r)}${darken(g)}${darken(b)}`;
-        });
+        const midColor = hexWithAlpha(colors[0], 1).replace(
+          /rgba\((\d+),(\d+),(\d+),[^)]+\)/,
+          (_, r, g, b) => {
+            const darken = (v: string) =>
+              Math.round(parseInt(v) * 0.4)
+                .toString(16)
+                .padStart(2, "0");
+            return `#${darken(r)}${darken(g)}${darken(b)}`;
+          },
+        );
         grad.addColorStop(0.66, midColor);
       }
       grad.addColorStop(1, bgStart);
@@ -390,8 +401,15 @@ function drawBackground(
 interface ConstellationDef {
   name: string;
   /** Generate member positions/shapes relative to center */
-  build: (rng: () => number, baseSize: number) => Array<{
-    dx: number; dy: number; shape: string; size: number; rotation: number;
+  build: (
+    rng: () => number,
+    baseSize: number,
+  ) => Array<{
+    dx: number;
+    dy: number;
+    shape: string;
+    size: number;
+    rotation: number;
   }>;
 }
 
@@ -401,16 +419,40 @@ const CONSTELLATIONS: ConstellationDef[] = [
     build: (rng, baseSize) => {
       const gap = baseSize * (0.6 + rng() * 0.3);
       return [
-        { dx: 0, dy: 0, shape: "triangle", size: baseSize, rotation: rng() * 360 },
-        { dx: -gap, dy: gap * 0.3, shape: "circle", size: baseSize * 0.35, rotation: 0 },
-        { dx: gap, dy: gap * 0.3, shape: "circle", size: baseSize * 0.35, rotation: 0 },
+        {
+          dx: 0,
+          dy: 0,
+          shape: "triangle",
+          size: baseSize,
+          rotation: rng() * 360,
+        },
+        {
+          dx: -gap,
+          dy: gap * 0.3,
+          shape: "circle",
+          size: baseSize * 0.35,
+          rotation: 0,
+        },
+        {
+          dx: gap,
+          dy: gap * 0.3,
+          shape: "circle",
+          size: baseSize * 0.35,
+          rotation: 0,
+        },
       ];
     },
   },
   {
     name: "hexagon-ring",
     build: (rng, baseSize) => {
-      const members: Array<{ dx: number; dy: number; shape: string; size: number; rotation: number }> = [];
+      const members: Array<{
+        dx: number;
+        dy: number;
+        shape: string;
+        size: number;
+        rotation: number;
+      }> = [];
       const count = 5 + Math.floor(rng() * 2);
       const ringR = baseSize * 0.6;
       for (let i = 0; i < count; i++) {
@@ -429,7 +471,13 @@ const CONSTELLATIONS: ConstellationDef[] = [
   {
     name: "spiral-dots",
     build: (rng, baseSize) => {
-      const members: Array<{ dx: number; dy: number; shape: string; size: number; rotation: number }> = [];
+      const members: Array<{
+        dx: number;
+        dy: number;
+        shape: string;
+        size: number;
+        rotation: number;
+      }> = [];
       const count = 7 + Math.floor(rng() * 5);
       const turns = 1.5 + rng();
       for (let i = 0; i < count; i++) {
@@ -452,10 +500,34 @@ const CONSTELLATIONS: ConstellationDef[] = [
     build: (rng, baseSize) => {
       const gap = baseSize * 0.45;
       return [
-        { dx: 0, dy: -gap, shape: "diamond", size: baseSize * 0.4, rotation: 0 },
-        { dx: gap, dy: 0, shape: "diamond", size: baseSize * 0.35, rotation: 15 },
-        { dx: 0, dy: gap, shape: "diamond", size: baseSize * 0.3, rotation: 30 },
-        { dx: -gap, dy: 0, shape: "diamond", size: baseSize * 0.35, rotation: -15 },
+        {
+          dx: 0,
+          dy: -gap,
+          shape: "diamond",
+          size: baseSize * 0.4,
+          rotation: 0,
+        },
+        {
+          dx: gap,
+          dy: 0,
+          shape: "diamond",
+          size: baseSize * 0.35,
+          rotation: 15,
+        },
+        {
+          dx: 0,
+          dy: gap,
+          shape: "diamond",
+          size: baseSize * 0.3,
+          rotation: 30,
+        },
+        {
+          dx: -gap,
+          dy: 0,
+          shape: "diamond",
+          size: baseSize * 0.35,
+          rotation: -15,
+        },
       ];
     },
   },
@@ -464,8 +536,20 @@ const CONSTELLATIONS: ConstellationDef[] = [
     build: (rng, baseSize) => {
       const gap = baseSize * 0.5;
       return [
-        { dx: -gap * 0.4, dy: 0, shape: "crescent", size: baseSize * 0.5, rotation: rng() * 30 },
-        { dx: gap * 0.4, dy: 0, shape: "crescent", size: baseSize * 0.45, rotation: 180 + rng() * 30 },
+        {
+          dx: -gap * 0.4,
+          dy: 0,
+          shape: "crescent",
+          size: baseSize * 0.5,
+          rotation: rng() * 30,
+        },
+        {
+          dx: gap * 0.4,
+          dy: 0,
+          shape: "crescent",
+          size: baseSize * 0.45,
+          rotation: 180 + rng() * 30,
+        },
       ];
     },
   },
@@ -485,7 +569,7 @@ export function renderHashArt(
   function _mark(name: string) {
     if (!_dt || !_t) return;
     const now = _t();
-    _dt.phases[name] = (now - _p);
+    _dt.phases[name] = now - _p;
     _p = now;
   }
 
@@ -495,23 +579,23 @@ export function renderHashArt(
   const archetype = selectArchetype(rng);
 
   // Archetype overrides defaults, but explicit user config wins
-  const {
-    width,
-    height,
-  } = finalConfig;
+  const { width, height } = finalConfig;
   const gridSize = config.gridSize ?? archetype.gridSize;
   const layers = config.layers ?? archetype.layers;
   const minShapeSize = config.minShapeSize ?? archetype.minShapeSize;
   const maxShapeSize = config.maxShapeSize ?? archetype.maxShapeSize;
   const baseOpacity = config.baseOpacity ?? archetype.baseOpacity;
-  const opacityReduction = config.opacityReduction ?? archetype.opacityReduction;
+  const opacityReduction =
+    config.opacityReduction ?? archetype.opacityReduction;
 
   const shapesPerLayer =
     finalConfig.shapesPerLayer || Math.floor(gridSize * gridSize * 1.5);
 
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColorsByMode(archetype.paletteMode);
-  const [bgStart, bgEnd] = colorScheme.getBackgroundColorsByMode(archetype.paletteMode);
+  const [bgStart, bgEnd] = colorScheme.getBackgroundColorsByMode(
+    archetype.paletteMode,
+  );
   const tempMode = colorScheme.getTemperatureMode();
   const fgTempTarget: "warm" | "cool" | null =
     tempMode === "warm-bg" ? "cool" : tempMode === "cool-bg" ? "warm" : null;
@@ -522,9 +606,16 @@ export function renderHashArt(
   // ── 0c. Shape palette — curated shapes that work well together ──
   // Merge custom shapes into a combined registry
   const customShapeNames: string[] = [];
-  type DrawFunction = (ctx: CanvasRenderingContext2D, size: number, config?: any) => void;
+  type DrawFunction = (
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    config?: any,
+  ) => void;
   let activeShapes: Record<string, DrawFunction> | undefined;
-  if (finalConfig.customShapes && Object.keys(finalConfig.customShapes).length > 0) {
+  if (
+    finalConfig.customShapes &&
+    Object.keys(finalConfig.customShapes).length > 0
+  ) {
     activeShapes = { ...shapes };
     for (const [name, def] of Object.entries(finalConfig.customShapes)) {
       // Wrap CustomDrawFunction (ctx, size, rng) into DrawFunction (ctx, size, config?)
@@ -540,7 +631,10 @@ export function renderHashArt(
         affinities: def.profile?.affinities ?? ["circle", "square"],
         category: "procedural",
         heroCandidate: def.profile?.heroCandidate ?? false,
-        bestStyles: def.profile?.bestStyles ?? ["fill-and-stroke", "watercolor"],
+        bestStyles: def.profile?.bestStyles ?? [
+          "fill-and-stroke",
+          "watercolor",
+        ],
       };
       customShapeNames.push(name);
     }
@@ -555,7 +649,8 @@ export function renderHashArt(
   const lightAngle = rng() * Math.PI * 2;
 
   // ── 0f. Palette evolution — hue drift direction across layers ──
-  const paletteHueShift = (rng() - 0.5) * 40; // -20° to +20° total drift
+  // Kept modest: large drifts fragment palette coherence across depth
+  const paletteHueShift = (rng() - 0.5) * 24; // -12° to +12° total drift
 
   const scaleFactor = Math.min(width, height) / 1024;
   const adjustedMinSize = minShapeSize * scaleFactor;
@@ -568,7 +663,19 @@ export function renderHashArt(
 
   // ── 1. Background ──────────────────────────────────────────────
   const bgRadius = Math.hypot(cx, cy);
-  drawBackground(ctx, archetype.backgroundStyle, bgStart, bgEnd, width, height, cx, cy, bgRadius, rng, colors);
+  drawBackground(
+    ctx,
+    archetype.backgroundStyle,
+    bgStart,
+    bgEnd,
+    width,
+    height,
+    cx,
+    cy,
+    bgRadius,
+    rng,
+    colors,
+  );
 
   // Gradient mesh overlay — 3-4 color control points for richer backgrounds
   // Use source-over instead of soft-light for cheaper compositing
@@ -601,14 +708,22 @@ export function renderHashArt(
   for (let i = 0; i < bgShapeCount; i++) {
     const bx = rng() * width;
     const by = rng() * height;
-    const bSize = (width * 0.3 + rng() * width * 0.5);
+    const bSize = width * 0.3 + rng() * width * 0.5;
     const bColor = pickHierarchyColor(colorHierarchy, rng);
     ctx.globalAlpha = (0.03 + rng() * 0.05) * 0.5; // halved to compensate for source-over vs soft-light
     ctx.fillStyle = hexWithAlpha(bColor, 0.15);
     ctx.beginPath();
     // Use archetype-appropriate background shapes
-    if (archetype.name === "geometric-precision" || archetype.name === "op-art") {
-      ctx.rect(bx - bSize / 2, by - bSize / 2, bSize, bSize * (0.5 + rng() * 0.5));
+    if (
+      archetype.name === "geometric-precision" ||
+      archetype.name === "op-art"
+    ) {
+      ctx.rect(
+        bx - bSize / 2,
+        by - bSize / 2,
+        bSize,
+        bSize * (0.5 + rng() * 0.5),
+      );
     } else {
       ctx.arc(bx, by, bSize / 2, 0, Math.PI * 2);
     }
@@ -621,7 +736,7 @@ export function renderHashArt(
   ctx.lineWidth = 1 * scaleFactor;
   ctx.beginPath();
   for (let i = 1; i <= ringCount; i++) {
-    const r = (Math.min(width, height) * 0.15) * i;
+    const r = Math.min(width, height) * 0.15 * i;
     ctx.moveTo(cx + r, cy);
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
   }
@@ -636,7 +751,10 @@ export function renderHashArt(
 
     if (bgPatternRoll < 0.2) {
       // Dot grid — use fillRect instead of arcs (much cheaper, no path building)
-      const dotSpacing = Math.max(12, Math.min(width, height) * (0.015 + rng() * 0.015));
+      const dotSpacing = Math.max(
+        12,
+        Math.min(width, height) * (0.015 + rng() * 0.015),
+      );
       const dotDiam = Math.max(1, Math.round(dotSpacing * 0.16));
       ctx.globalAlpha = patternOpacity;
       ctx.fillStyle = patternColor;
@@ -649,7 +767,10 @@ export function renderHashArt(
       }
     } else if (bgPatternRoll < 0.4) {
       // Diagonal lines — batched into a single path, capped at 300 lines
-      const lineSpacing = Math.max(10, Math.min(width, height) * (0.02 + rng() * 0.02));
+      const lineSpacing = Math.max(
+        10,
+        Math.min(width, height) * (0.02 + rng() * 0.02),
+      );
       ctx.globalAlpha = patternOpacity;
       ctx.strokeStyle = patternColor;
       ctx.lineWidth = 0.5 * scaleFactor;
@@ -664,7 +785,10 @@ export function renderHashArt(
       ctx.stroke();
     } else {
       // Tessellation — hexagonal grid, capped at 500 hexagons
-      const tessSize = Math.max(15, Math.min(width, height) * (0.025 + rng() * 0.02));
+      const tessSize = Math.max(
+        15,
+        Math.min(width, height) * (0.025 + rng() * 0.02),
+      );
       const tessH = tessSize * Math.sqrt(3);
       ctx.globalAlpha = patternOpacity * 0.7;
       ctx.strokeStyle = patternColor;
@@ -681,7 +805,11 @@ export function renderHashArt(
       let hexCount = 0;
       for (let row = 0; row * tessH < height + tessH && hexCount < 500; row++) {
         const offsetX = (row % 2) * tessSize * 0.75;
-        for (let col = 0; col * tessSize * 1.5 < width + tessSize * 1.5 && hexCount < 500; col++) {
+        for (
+          let col = 0;
+          col * tessSize * 1.5 < width + tessSize * 1.5 && hexCount < 500;
+          col++
+        ) {
           const hx = col * tessSize * 1.5 + offsetX;
           const hy = row * tessH;
           ctx.moveTo(hx + hexVx[0], hy + hexVy[0]);
@@ -701,17 +829,28 @@ export function renderHashArt(
   _mark("1_background");
 
   // ── 2. Composition mode — archetype-aware selection ──────────────
-  const compositionMode: CompositionMode = rng() < 0.7
-    ? archetype.preferredCompositions[Math.floor(rng() * archetype.preferredCompositions.length)]
-    : ALL_COMPOSITION_MODES[Math.floor(rng() * ALL_COMPOSITION_MODES.length)];
+  const compositionMode: CompositionMode =
+    rng() < 0.7
+      ? archetype.preferredCompositions[
+          Math.floor(rng() * archetype.preferredCompositions.length)
+        ]
+      : ALL_COMPOSITION_MODES[Math.floor(rng() * ALL_COMPOSITION_MODES.length)];
 
-  // ── 2b. Symmetry mode — ~25% of hashes trigger mirroring ──────
+  // ── 2b. Symmetry mode — ~15% of hashes trigger mirroring ──────
+  // Now that the mirror blit actually lands at full alpha (it was
+  // previously ghosted to near-invisibility by leftover globalAlpha),
+  // hard Rorschach symmetry is a strong statement — kept rarer so it
+  // stays special.
   type SymmetryMode = "none" | "bilateral-x" | "bilateral-y" | "quad";
   const symRoll = rng();
   const symmetryMode: SymmetryMode =
-    symRoll < 0.10 ? "bilateral-x" :
-    symRoll < 0.20 ? "bilateral-y" :
-    symRoll < 0.25 ? "quad" : "none";
+    symRoll < 0.06
+      ? "bilateral-x"
+      : symRoll < 0.12
+        ? "bilateral-y"
+        : symRoll < 0.15
+          ? "quad"
+          : "none";
 
   // ── 3. Focal points + void zones (archetype-aware) ───────────────
   const THIRDS_POINTS = [
@@ -739,18 +878,27 @@ export function renderHashArt(
     }
   }
 
+  // ── 3a. Composition anchor — off-center gravity for centered modes ──
+  // ~70% of images anchor radial/spiral/golden-spiral placement on the
+  // primary focal point instead of the canvas center. Combined with the
+  // wider placement radii this breaks the "centered blob" silhouette:
+  // mass sits on a thirds line and shapes crop off the far edge.
+  const useOffCenterAnchor = rng() < 0.7;
+  const anchorX = useOffCenterAnchor ? focalPoints[0].x : cx;
+  const anchorY = useOffCenterAnchor ? focalPoints[0].y : cy;
+
   // Archetype-aware void zones: dense archetypes get fewer/no voids,
   // minimal archetypes get golden-ratio positioned voids
   const PHI = (1 + Math.sqrt(5)) / 2;
   const isMinimalArchetype = archetype.gridSize <= 3;
   const isDenseArchetype = archetype.gridSize >= 8;
-  const numVoids = isDenseArchetype ? 0 : (Math.floor(rng() * 2) + 1);
+  const numVoids = isDenseArchetype ? 0 : Math.floor(rng() * 2) + 1;
   const voidZones: Array<{ x: number; y: number; radius: number }> = [];
   for (let v = 0; v < numVoids; v++) {
     if (isMinimalArchetype) {
       // Place voids at golden-ratio positions for intentional negative space
-      const gx = (v === 0) ? 1 / PHI : 1 - 1 / PHI;
-      const gy = (v === 0) ? 1 - 1 / PHI : 1 / PHI;
+      const gx = v === 0 ? 1 / PHI : 1 - 1 / PHI;
+      const gy = v === 0 ? 1 - 1 / PHI : 1 / PHI;
       voidZones.push({
         x: width * (gx + (rng() - 0.5) * 0.05),
         y: height * (gy + (rng() - 0.5) * 0.05),
@@ -775,7 +923,8 @@ export function renderHashArt(
         nearest = fp;
       }
     }
-    const pull = nearest.strength * rng() * 0.5;
+    // Gentle pull — strong focal gravity collapses compositions inward
+    const pull = nearest.strength * rng() * 0.3;
     return [rx + (nearest.x - rx) * pull, ry + (nearest.y - ry) * pull];
   }
 
@@ -806,7 +955,9 @@ export function renderHashArt(
         ctx.arc(
           zone.x + Math.cos(angle) * dist,
           zone.y + Math.sin(angle) * dist,
-          dotR, 0, Math.PI * 2,
+          dotR,
+          0,
+          Math.PI * 2,
         );
       }
       ctx.fill();
@@ -850,11 +1001,33 @@ export function renderHashArt(
   }
 
   // Track all placed shapes for density checks and connecting curves
-  const shapePositions: Array<{ x: number; y: number; size: number; shape: string }> = [];
+  const shapePositions: Array<{
+    x: number;
+    y: number;
+    size: number;
+    shape: string;
+  }> = [];
 
-  // Spatial grid for O(1) density and nearest-neighbor lookups
-  const densityCheckRadius = Math.min(width, height) * 0.08;
-  const spatialGrid = new SpatialGrid(densityCheckRadius);
+  // Last few shape picks, used by the repetition guard below to break up
+  // runs of the identical shape.
+  const recentShapePicks: string[] = [];
+
+  // Spatial grid for O(1) density and nearest-neighbor lookups. Cell size
+  // stays canvas-relative (fine-grained buckets) — deliberately decoupled
+  // from the density *query* radius below. Setting cell size equal to a
+  // large query radius would collapse the grid into a handful of giant
+  // buckets and turn each lookup into a near-linear scan of every placed
+  // shape, which is exactly what happened when this was first tried here.
+  const gridCellSize = Math.min(width, height) * 0.08;
+  const spatialGrid = new SpatialGrid(gridCellSize);
+
+  // Density query radius scales with the archetype's max shape size so
+  // poster-style archetypes (few, large shapes — bold-graphic,
+  // minimal-spacious, watercolor-wash) get real breathing room between
+  // shapes. A fixed canvas-relative radius let large shapes fully overlap
+  // into an undifferentiated translucent mass regardless of archetype
+  // character.
+  const densityCheckRadius = Math.max(gridCellSize, adjustedMaxSize * 0.25);
 
   // Hero avoidance radius — shapes near the hero orient toward it
   let heroCenter: { x: number; y: number; size: number } | null = null;
@@ -863,27 +1036,44 @@ export function renderHashArt(
   if (archetype.heroShape && rng() < 0.6) {
     const heroFocal = focalPoints[0];
     // Use shape palette hero candidates
-    const heroPool = [...shapePalette.primary, ...shapePalette.supporting]
-      .filter((s) => SHAPE_PROFILES[s]?.heroCandidate && shapeNames.includes(s));
-    const heroShape = heroPool.length > 0
-      ? heroPool[Math.floor(rng() * heroPool.length)]
-      : shapeNames[Math.floor(rng() * shapeNames.length)];
+    const heroPool = [
+      ...shapePalette.primary,
+      ...shapePalette.supporting,
+    ].filter((s) => SHAPE_PROFILES[s]?.heroCandidate && shapeNames.includes(s));
+    const heroShape =
+      heroPool.length > 0
+        ? heroPool[Math.floor(rng() * heroPool.length)]
+        : shapeNames[Math.floor(rng() * shapeNames.length)];
 
     const heroSize = adjustedMaxSize * (0.8 + rng() * 0.5);
     const heroRotation = rng() * 360;
+    // A "dominant focal element" needs to actually dominate — the old
+    // 0.15-0.35 fill alpha combined with the ~0.5-0.7 globalAlpha below
+    // gave an effective opacity as low as ~7%, so heroes routinely
+    // vanished into the crowd instead of anchoring the composition.
     const heroFill = hexWithAlpha(
-      enforceContrast(jitterColorHSL(colorHierarchy.dominant, rng, 6, 0.05), bgLum),
-      0.15 + rng() * 0.2,
+      enforceContrast(
+        jitterColorHSL(colorHierarchy.dominant, rng, 6, 0.05),
+        bgLum,
+      ),
+      0.4 + rng() * 0.25,
     );
-    const heroStroke = enforceContrast(jitterColorHSL(colorHierarchy.accent, rng, 6, 0.05), bgLum);
+    const heroStroke = enforceContrast(
+      jitterColorHSL(colorHierarchy.accent, rng, 6, 0.05),
+      bgLum,
+    );
 
     // Get best style for this hero shape
     const heroProfile = SHAPE_PROFILES[heroShape];
     const heroStyle: RenderStyle = heroProfile
-      ? (heroProfile.bestStyles[Math.floor(rng() * heroProfile.bestStyles.length)] as RenderStyle)
-      : (rng() < 0.4 ? "watercolor" : "fill-and-stroke");
+      ? (heroProfile.bestStyles[
+          Math.floor(rng() * heroProfile.bestStyles.length)
+        ] as RenderStyle)
+      : rng() < 0.4
+        ? "watercolor"
+        : "fill-and-stroke";
 
-    ctx.globalAlpha = 0.5 + rng() * 0.2;
+    ctx.globalAlpha = 0.75 + rng() * 0.2;
     enhanceShapeGeneration(ctx, heroShape, heroFocal.x, heroFocal.y, {
       fillColor: heroFill,
       strokeColor: heroStroke,
@@ -902,15 +1092,223 @@ export function renderHashArt(
     });
 
     heroCenter = { x: heroFocal.x, y: heroFocal.y, size: heroSize };
-    shapePositions.push({ x: heroFocal.x, y: heroFocal.y, size: heroSize, shape: heroShape });
-    spatialGrid.insert({ x: heroFocal.x, y: heroFocal.y, size: heroSize, shape: heroShape });
+    shapePositions.push({
+      x: heroFocal.x,
+      y: heroFocal.y,
+      size: heroSize,
+      shape: heroShape,
+    });
+    spatialGrid.insert({
+      x: heroFocal.x,
+      y: heroFocal.y,
+      size: heroSize,
+      shape: heroShape,
+    });
   }
 
+  // ── 4c. Growth structures — emergent branching, not placed shapes ──
+  // A queue-based growth simulation walks the noise field and branches
+  // as it goes, producing coral/root structures (organic archetypes) or
+  // crack/lightning networks (angular archetypes). Drawn before the
+  // shape layers so the structures weave through the mid-ground.
+  {
+    type GrowthMode = "organic" | "crack" | "none";
+    const archName = archetype.name;
+    const isPosterArch = [
+      "bold-graphic",
+      "minimal-spacious",
+      "collage",
+      "op-art",
+      "stipple-portrait",
+    ].some((a) => archName.startsWith(a));
+    let growthChance = 0.12;
+    let growthMode: GrowthMode = "organic";
+    if (isPosterArch) {
+      growthChance = 0;
+    } else if (
+      archName.startsWith("botanical") ||
+      archName.startsWith("organic-flow")
+    ) {
+      growthChance = 0.8;
+    } else if (
+      archName.startsWith("watercolor-wash") ||
+      archName.startsWith("ethereal") ||
+      archName.startsWith("celestial") ||
+      archName.startsWith("cosmic")
+    ) {
+      growthChance = 0.35;
+    } else if (
+      archName.startsWith("shattered-glass") ||
+      archName.startsWith("geometric-precision") ||
+      archName.startsWith("monochrome-ink")
+    ) {
+      growthChance = 0.5;
+      growthMode = "crack";
+    }
+
+    if (rng() < growthChance) {
+      const structureCount =
+        growthMode === "crack"
+          ? 1 + Math.floor(rng() * 3)
+          : 1 + Math.floor(rng() * 2);
+      ctx.save();
+      ctx.lineCap = growthMode === "organic" ? "round" : "butt";
+
+      for (let g = 0; g < structureCount; g++) {
+        // Organic structures root near the anchor's opposite side or an
+        // edge; cracks start at a canvas edge and shoot inward.
+        let sx: number;
+        let sy: number;
+        let startAngle: number;
+        if (growthMode === "crack") {
+          const edge = Math.floor(rng() * 4);
+          if (edge === 0) {
+            sx = rng() * width;
+            sy = 0;
+            startAngle = Math.PI / 2;
+          } else if (edge === 1) {
+            sx = rng() * width;
+            sy = height;
+            startAngle = -Math.PI / 2;
+          } else if (edge === 2) {
+            sx = 0;
+            sy = rng() * height;
+            startAngle = 0;
+          } else {
+            sx = width;
+            sy = rng() * height;
+            startAngle = Math.PI;
+          }
+          startAngle += (rng() - 0.5) * 0.8;
+        } else {
+          sx = width * (0.1 + rng() * 0.8);
+          sy = height * (0.75 + rng() * 0.3);
+          startAngle = -Math.PI / 2 + (rng() - 0.5) * 0.9;
+        }
+
+        const growthColor = enforceContrast(
+          jitterColorHSL(
+            rng() < 0.6 ? colorHierarchy.secondary : colorHierarchy.accent,
+            rng,
+            6,
+            0.05,
+          ),
+          bgLum,
+        );
+        const baseAlpha =
+          growthMode === "crack" ? 0.2 + rng() * 0.25 : 0.25 + rng() * 0.2;
+        const baseWidth =
+          (growthMode === "crack" ? 0.9 + rng() * 0.8 : 2.5 + rng() * 2.5) *
+          scaleFactor;
+        const stepLen =
+          (growthMode === "crack" ? 6 + rng() * 5 : 4 + rng() * 3) *
+          scaleFactor;
+        ctx.strokeStyle = growthColor;
+
+        // Iterative branch queue — each entry is one growing tip
+        const branchQueue: Array<{
+          x: number;
+          y: number;
+          angle: number;
+          w: number;
+          steps: number;
+          depth: number;
+        }> = [
+          {
+            x: sx,
+            y: sy,
+            angle: startAngle,
+            w: baseWidth,
+            steps: 36 + Math.floor(rng() * 30),
+            depth: 0,
+          },
+        ];
+        const tips: Array<{ x: number; y: number; w: number }> = [];
+        let totalSegments = 0;
+
+        while (branchQueue.length > 0 && totalSegments < 900) {
+          const b = branchQueue.pop()!;
+          let px = b.x;
+          let py = b.y;
+          let angle = b.angle;
+          for (let s = 0; s < b.steps; s++) {
+            if (growthMode === "organic") {
+              // Smooth curl guided by the shared noise field
+              angle +=
+                fbmNoise((px / width) * 3, (py / height) * 3) * 0.45 +
+                (rng() - 0.5) * 0.3;
+            } else if (rng() < 0.35) {
+              // Jagged directional jumps
+              angle += (rng() - 0.5) * 1.5;
+            }
+            const nx = px + Math.cos(angle) * stepLen;
+            const ny = py + Math.sin(angle) * stepLen;
+            if (
+              nx < -width * 0.05 ||
+              nx > width * 1.05 ||
+              ny < -height * 0.05 ||
+              ny > height * 1.05
+            )
+              break;
+            const taper = 1 - (s / b.steps) * 0.7;
+            ctx.lineWidth = Math.max(0.35, b.w * taper);
+            ctx.globalAlpha = baseAlpha * (0.55 + taper * 0.45);
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(nx, ny);
+            ctx.stroke();
+            totalSegments++;
+            const branchChance = growthMode === "crack" ? 0.1 : 0.07;
+            if (b.depth < 3 && rng() < branchChance) {
+              branchQueue.push({
+                x: nx,
+                y: ny,
+                angle: angle + (rng() < 0.5 ? 1 : -1) * (0.35 + rng() * 0.6),
+                w: b.w * 0.55,
+                steps: Math.max(5, Math.floor(b.steps * 0.6)),
+                depth: b.depth + 1,
+              });
+            }
+            px = nx;
+            py = ny;
+          }
+          if (growthMode === "organic" && b.depth > 0) {
+            tips.push({ x: px, y: py, w: b.w });
+          }
+        }
+
+        // Coral-polyp tip dots — batched into one fill
+        if (tips.length > 0) {
+          ctx.globalAlpha = baseAlpha * 1.2;
+          ctx.fillStyle = growthColor;
+          ctx.beginPath();
+          for (const t of tips) {
+            const tr = Math.max(1, t.w * 1.1);
+            ctx.moveTo(t.x + tr, t.y);
+            ctx.arc(t.x, t.y, tr, 0, Math.PI * 2);
+          }
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+  }
 
   _mark("4_flowfield_hero");
 
   // ── 5. Shape layers ────────────────────────────────────────────
-  const maxLocalDensity = Math.ceil(shapesPerLayer * 0.15);
+  // Floored at 2: with the enlarged densityCheckRadius below (scaled to
+  // adjustedMaxSize), a threshold of 1 made sparse/large-shape archetypes
+  // (minimal-spacious, watercolor-wash) skip almost every shape after the
+  // first, collapsing toward an empty canvas.
+  const maxLocalDensity = Math.max(2, Math.ceil(shapesPerLayer * 0.15));
+
+  // ── Extras scale — protect sparse archetypes' character ────────
+  // Echoes, nesting, constellations, rhythm and mirrors multiply the
+  // shape count. On minimal archetypes (gridSize ≤ 3) that clutter
+  // destroys the intended airiness, so their probability scales down.
+  const extrasScale = gridSize <= 3 ? 0.3 : gridSize <= 5 ? 0.7 : 1;
 
   // ── Complexity budget — caps total rendering work ──────────────
   // Budget scales with pixel area so larger canvases get proportionally
@@ -931,25 +1329,36 @@ export function renderHashArt(
   // Hard cap on clip-heavy render styles (stipple, noise-grain).
   // These generate O(size²) fillRect calls per shape and dominate
   // worst-case render time.  Cap scales with pixel area.
-  const MAX_CLIP_HEAVY_SHAPES = Math.max(4, Math.floor(8 * (pixelArea / 1_000_000)));
+  const MAX_CLIP_HEAVY_SHAPES = Math.max(
+    4,
+    Math.floor(8 * (pixelArea / 1_000_000)),
+  );
   let clipHeavyCount = 0;
 
   for (let layer = 0; layer < layers; layer++) {
     const layerRatio = layers > 1 ? layer / (layers - 1) : 0;
-    const numShapes =
-      shapesPerLayer +
-      Math.floor(rng() * shapesPerLayer * 0.3);
-    const layerOpacity = Math.max(0.15, baseOpacity - layer * opacityReduction);
+    const numShapes = shapesPerLayer + Math.floor(rng() * shapesPerLayer * 0.3);
+    // Very light backgrounds swallow low-opacity washes — lift the whole
+    // layer so soft archetypes (ethereal, pastel) still register.
+    const layerOpacityRaw = Math.max(
+      0.15,
+      baseOpacity - layer * opacityReduction,
+    );
+    const layerOpacity =
+      bgLum > 0.75 ? Math.min(1, layerOpacityRaw * 1.35) : layerOpacityRaw;
     const layerSizeScale = 1 - layer * 0.15;
 
-    // Per-layer blend mode
-    const layerBlend = pickBlendMode(rng);
+    // Per-layer blend mode — restricted to modes that suit the background
+    const layerBlend = pickBlendMode(rng, bgLum);
     ctx.globalCompositeOperation = layerBlend;
 
     // Per-layer render style bias — prefer archetype styles
-    const layerRenderStyle: RenderStyle = rng() < 0.6
-      ? archetype.preferredStyles[Math.floor(rng() * archetype.preferredStyles.length)]
-      : pickRenderStyle(rng);
+    const layerRenderStyle: RenderStyle =
+      rng() < 0.6
+        ? archetype.preferredStyles[
+            Math.floor(rng() * archetype.preferredStyles.length)
+          ]
+        : pickRenderStyle(rng);
 
     // Atmospheric desaturation for later layers
     const atmosphericDesat = layerRatio * 0.3;
@@ -961,7 +1370,11 @@ export function renderHashArt(
     const dofContrastReduction = layerRatio * 0.2; // colors fade toward bg
 
     // Color palette evolution — hue-rotate the hierarchy per layer
-    const layerHierarchy = evolveHierarchy(colorHierarchy, layerRatio, paletteHueShift);
+    const layerHierarchy = evolveHierarchy(
+      colorHierarchy,
+      layerRatio,
+      paletteHueShift,
+    );
 
     // Focal depth: shapes near focal points get more detail
     const focalDetailBoost = (px: number, py: number): number => {
@@ -983,8 +1396,8 @@ export function renderHashArt(
         height,
         i,
         numShapes,
-        cx,
-        cy,
+        anchorX,
+        anchorY,
       );
       const [x, y] = applyFocalBias(rawPos.x, rawPos.y);
 
@@ -995,18 +1408,43 @@ export function renderHashArt(
       if (spatialGrid.countNear(x, y, densityCheckRadius) > maxLocalDensity) {
         if (rng() < 0.6) continue;
       }
+      // Keep a halo of clear space around the hero shape — otherwise
+      // later layers bury the "dominant focal element" under generic
+      // shapes and it stops reading as a hero at all.
+      if (heroCenter) {
+        const distToHeroCenter = Math.hypot(x - heroCenter.x, y - heroCenter.y);
+        if (distToHeroCenter < heroCenter.size * 0.55) {
+          if (rng() < 0.75) continue;
+        }
+      }
 
       // Power distribution for size — archetype controls the curve
       const sizeT = Math.pow(rng(), archetype.sizePower);
       const size =
         (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
-        layerSizeScale * noiseSizeModulation(x, y);
+        layerSizeScale *
+        noiseSizeModulation(x, y);
 
       // Size fraction for affinity-aware shape selection
       const sizeFraction = size / adjustedMaxSize;
 
       // Palette-driven shape selection (replaces naive pickShape)
-      const shape = pickShapeFromPalette(shapePalette, rng, sizeFraction);
+      let shape = pickShapeFromPalette(shapePalette, rng, sizeFraction);
+
+      // Repetition guard — the weighted palette naturally favors a
+      // handful of primary shapes, which without a check produces visible
+      // runs of the identical shape back-to-back ("wall of circles"
+      // reading as a stamped-out pattern rather than a composition).
+      // Re-roll once after 2 consecutive identical picks.
+      if (
+        recentShapePicks.length >= 2 &&
+        recentShapePicks[recentShapePicks.length - 1] === shape &&
+        recentShapePicks[recentShapePicks.length - 2] === shape
+      ) {
+        shape = pickShapeFromPalette(shapePalette, rng, sizeFraction);
+      }
+      recentShapePicks.push(shape);
+      if (recentShapePicks.length > 3) recentShapePicks.shift();
 
       // Flow-field rotation in flow-field mode, random otherwise
       let rotation =
@@ -1019,15 +1457,24 @@ export function renderHashArt(
         const distToHero = Math.hypot(x - heroCenter.x, y - heroCenter.y);
         const heroInfluence = heroCenter.size * 1.5;
         if (distToHero < heroInfluence && distToHero > 0) {
-          const angleToHero = Math.atan2(heroCenter.y - y, heroCenter.x - x) * 180 / Math.PI;
-          const blendFactor = 1 - (distToHero / heroInfluence);
+          const angleToHero =
+            (Math.atan2(heroCenter.y - y, heroCenter.x - x) * 180) / Math.PI;
+          const blendFactor = 1 - distToHero / heroInfluence;
           rotation = rotation + (angleToHero - rotation) * blendFactor * 0.4;
         }
       }
 
       // Positional color from hierarchy + jitter (using evolved layer palette)
-      let fillBase = getPositionalColor(x, y, width, height, layerHierarchy, rng);
-      const strokeBase = pickHierarchyColor(layerHierarchy, rng);
+      let fillBase = getPositionalColor(
+        x,
+        y,
+        width,
+        height,
+        layerHierarchy,
+        rng,
+        anchorX,
+        anchorY,
+      );
 
       // Desaturate colors on later layers for depth
       if (atmosphericDesat > 0) {
@@ -1036,21 +1483,71 @@ export function renderHashArt(
 
       // Temperature contrast: shift foreground shapes opposite to background
       if (fgTempTarget) {
-        fillBase = shiftTemperature(fillBase, fgTempTarget, 0.15 + layerRatio * 0.1);
+        fillBase = shiftTemperature(
+          fillBase,
+          fgTempTarget,
+          0.15 + layerRatio * 0.1,
+        );
       }
 
-      const fillColor = enforceContrast(jitterColorHSL(fillBase, rng, 6, 0.05), bgLum);
-      const strokeColor = enforceContrast(jitterColorHSL(strokeBase, rng, 5, 0.04), bgLum);
+      // ── Value hierarchy by scale — big masses stay quiet, small accents sing ──
+      const sizeNorm = Math.min(1, size / adjustedMaxSize);
+      if (sizeNorm > 0.55) {
+        fillBase = desaturate(fillBase, (sizeNorm - 0.55) * 0.55);
+      } else if (sizeNorm < 0.22) {
+        fillBase = adjustSaturation(fillBase, 0.12);
+      }
 
-      // Semi-transparent fill
-      const fillAlpha = 0.2 + rng() * 0.5;
+      // Tone-on-tone strokes ~70% of the time — an outline in a shifted
+      // value of the fill reads as one object; independent hierarchy
+      // strokes are reserved for occasional deliberate contrast.
+      const strokeBase =
+        rng() < 0.7
+          ? adjustLightness(fillBase, bgLum > 0.5 ? -0.18 : 0.18)
+          : pickHierarchyColor(layerHierarchy, rng);
+
+      const fillColor = enforceContrast(
+        jitterColorHSL(fillBase, rng, 6, 0.05),
+        bgLum,
+      );
+      const strokeColor = enforceContrast(
+        jitterColorHSL(strokeBase, rng, 5, 0.04),
+        bgLum,
+      );
+
+      // Semi-transparent fill — larger shapes quieter, small shapes denser.
+      // Light backgrounds get a floor bump so washes don't disappear.
+      const alphaBoost = bgLum > 0.75 ? 0.14 : bgLum > 0.6 ? 0.08 : 0;
+      let fillAlpha =
+        (sizeNorm > 0.55 ? 0.16 + rng() * 0.3 : 0.3 + rng() * 0.42) +
+        alphaBoost;
+      // Large near-black masses on light backgrounds read as glitches —
+      // keep dark accents but thin them so they punctuate, not dominate
+      if (bgLum > 0.6 && sizeNorm > 0.3 && luminance(fillColor) < 0.12) {
+        fillAlpha *= 0.6;
+      }
       const transparentFill = hexWithAlpha(fillColor, fillAlpha);
 
       const strokeWidth = (0.5 + rng() * 2.0) * scaleFactor * dofStrokeScale;
 
-      // Depth-of-field: reduce opacity slightly for distant layers
+      // Depth-of-field: reduce opacity slightly for distant layers.
+      // ctx.globalAlpha multiplies with fillAlpha (already baked into
+      // transparentFill's rgba channel) at composite time — two
+      // independently-random dampening terms stacking multiplicatively.
+      // Each is individually well-motivated (layer depth-fade, size-based
+      // quieting) but together they could crush a shape's *effective*
+      // opacity to ~1-2%, rendering it functionally invisible despite
+      // consuming a full placement. Floor the product instead of the
+      // individual terms so shapes stay legible while preserving the
+      // intended fade/quiet effects.
       const dofOpacityScale = 1 - dofContrastReduction;
-      ctx.globalAlpha = layerOpacity * (0.5 + rng() * 0.5) * dofOpacityScale;
+      const layerAlpha = layerOpacity * dofOpacityScale;
+      const MIN_EFFECTIVE_ALPHA = 0.16;
+      const effectiveAlpha = layerAlpha * fillAlpha;
+      ctx.globalAlpha =
+        effectiveAlpha < MIN_EFFECTIVE_ALPHA
+          ? Math.min(1, MIN_EFFECTIVE_ALPHA / fillAlpha)
+          : layerAlpha;
 
       // Glow on sacred shapes more often — scaled by archetype
       const isSacred = SACRED_SHAPES.includes(shape);
@@ -1066,17 +1563,29 @@ export function renderHashArt(
         : undefined;
 
       // Affinity-aware render style selection
-      const shapeRenderStyle = pickStyleForShape(shape, layerRenderStyle, rng) as RenderStyle;
+      const shapeRenderStyle = pickStyleForShape(
+        shape,
+        layerRenderStyle,
+        rng,
+      ) as RenderStyle;
 
       // Organic edge jitter — applied via watercolor style on ~15% of shapes
-      const useOrganicEdges = rng() < 0.15 && shapeRenderStyle === "fill-and-stroke";
-      let finalRenderStyle = useOrganicEdges ? "watercolor" as RenderStyle : shapeRenderStyle;
+      const useOrganicEdges =
+        rng() < 0.15 && shapeRenderStyle === "fill-and-stroke";
+      let finalRenderStyle = useOrganicEdges
+        ? ("watercolor" as RenderStyle)
+        : shapeRenderStyle;
 
       // Budget check: downgrade expensive styles proportionally —
       // the more expensive the style, the earlier it gets downgraded.
       // noise-grain (400) downgrades when budget < 20% remaining,
       // stipple (90) when < 82%, wood-grain (10) when < 98%.
       let styleCost = RENDER_STYLE_COST[finalRenderStyle] ?? 1;
+      // Noise-contoured shapes resample and retrace their field on
+      // every draw — charge them so the budget throttles dense cases
+      if (shape === "noiseForm" || shape === "contourField") {
+        styleCost += 2;
+      }
       if (styleCost > 3) {
         const downgradeThreshold = Math.min(0.85, styleCost / 500);
         if (complexityBudget < totalBudget * (1 - downgradeThreshold)) {
@@ -1086,17 +1595,23 @@ export function renderHashArt(
       }
       // Hard cap: clip-heavy styles (stipple, noise-grain) are limited
       // to MAX_CLIP_HEAVY_SHAPES total across the entire render.
-      if ((finalRenderStyle === "stipple" || finalRenderStyle === "noise-grain") &&
-          clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES) {
+      if (
+        (finalRenderStyle === "stipple" ||
+          finalRenderStyle === "noise-grain") &&
+        clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES
+      ) {
         finalRenderStyle = downgradeRenderStyle(finalRenderStyle);
         styleCost = RENDER_STYLE_COST[finalRenderStyle] ?? 1;
       }
-      if (finalRenderStyle === "stipple" || finalRenderStyle === "noise-grain") {
+      if (
+        finalRenderStyle === "stipple" ||
+        finalRenderStyle === "noise-grain"
+      ) {
         clipHeavyCount++;
       }
 
       // Consistent light direction — subtle shadow offset
-      const shadowDist = hasGlow ? 0 : (size * 0.02);
+      const shadowDist = hasGlow ? 0 : size * 0.02;
       const shadowOffX = shadowDist * Math.cos(lightAngle);
       const shadowOffY = shadowDist * Math.sin(lightAngle);
 
@@ -1124,9 +1639,22 @@ export function renderHashArt(
 
       // ── 5b. Shape mirroring — basic shapes get reflected copies ──
       const mirrorAxis = pickMirrorAxis(rng);
-      const isBasicShape = ["circle", "triangle", "square", "hexagon", "star",
-        "diamond", "crescent", "penroseTile", "reuleauxTriangle"].includes(shape);
-      const shouldMirror = mirrorAxis !== null && isBasicShape && size > adjustedMaxSize * 0.2;
+      const isBasicShape = [
+        "circle",
+        "triangle",
+        "square",
+        "hexagon",
+        "star",
+        "diamond",
+        "crescent",
+        "penroseTile",
+        "reuleauxTriangle",
+      ].includes(shape);
+      const shouldMirror =
+        mirrorAxis !== null &&
+        isBasicShape &&
+        size > adjustedMaxSize * 0.2 &&
+        (extrasScale >= 1 || rng() < extrasScale * 0.7);
 
       const shapeConfig = {
         fillColor: transparentFill,
@@ -1138,7 +1666,9 @@ export function renderHashArt(
         glowRadius: glowRadius || (shadowDist > 0 ? shadowDist * 2 : 0),
         glowColor: hasGlow
           ? hexWithAlpha(fillColor, 0.6)
-          : (shadowDist > 0 ? "rgba(0,0,0,0.08)" : undefined),
+          : shadowDist > 0
+            ? "rgba(0,0,0,0.08)"
+            : undefined,
         gradientFillEnd: gradientEnd,
         renderStyle: finalRenderStyle,
         rng,
@@ -1163,7 +1693,7 @@ export function renderHashArt(
       const extrasAllowed = extrasSpent < budgetForExtras;
 
       // ── Glazing — luminous multi-pass transparency on ~20% of shapes ──
-      if (rng() < 0.2 && size > adjustedMinSize * 2) {
+      if (rng() < 0.2 * extrasScale && size > adjustedMinSize * 2) {
         const glazePasses = 2 + Math.floor(rng() * 2);
         if (extrasAllowed) {
           for (let g = 0; g < glazePasses; g++) {
@@ -1191,7 +1721,7 @@ export function renderHashArt(
       spatialGrid.insert({ x: finalX, y: finalY, size, shape });
 
       // ── 5c. Size echo — large shapes spawn trailing smaller copies ──
-      if (size > adjustedMaxSize * 0.5 && rng() < 0.2) {
+      if (size > adjustedMaxSize * 0.5 && rng() < 0.2 * extrasScale) {
         const echoCount = 2 + Math.floor(rng() * 2);
         const echoAngle = rng() * Math.PI * 2;
         if (extrasAllowed) {
@@ -1202,7 +1732,8 @@ export function renderHashArt(
             const echoY = finalY + Math.sin(echoAngle) * echoDist;
             const echoSize = size * Math.max(0.1, echoScale);
 
-            if (echoX < 0 || echoX > width || echoY < 0 || echoY > height) continue;
+            if (echoX < 0 || echoX > width || echoY < 0 || echoY > height)
+              continue;
 
             ctx.globalAlpha = layerOpacity * (0.4 - e * 0.1);
             enhanceShapeGeneration(ctx, shape, echoX, echoY, {
@@ -1227,30 +1758,46 @@ export function renderHashArt(
       // ── 5d. Recursive nesting ──────────────────────────────────
       // Focal depth: shapes near focal points get more detail
       const focalProximity = focalDetailBoost(finalX, finalY);
-      const nestingChance = 0.15 + focalProximity * 0.15; // 15-30% near focal
+      const nestingChance = (0.15 + focalProximity * 0.15) * extrasScale; // 15-30% near focal
       if (size > adjustedMaxSize * 0.4 && rng() < nestingChance) {
         const innerCount = 1 + Math.floor(rng() * 3);
         if (extrasAllowed) {
           for (let n = 0; n < innerCount; n++) {
             // Pick inner shape from palette affinities
             const innerSizeFraction = (size * 0.25) / adjustedMaxSize;
-            const innerShape = pickShapeFromPalette(shapePalette, rng, innerSizeFraction);
+            const innerShape = pickShapeFromPalette(
+              shapePalette,
+              rng,
+              innerSizeFraction,
+            );
             const innerSize = size * (0.15 + rng() * 0.25);
             const innerOffX = (rng() - 0.5) * size * 0.4;
             const innerOffY = (rng() - 0.5) * size * 0.4;
             const innerRot = rng() * 360;
             const innerFill = hexWithAlpha(
-              jitterColorHSL(pickHierarchyColor(colorHierarchy, rng), rng, 10, 0.1),
+              jitterColorHSL(
+                pickHierarchyColor(colorHierarchy, rng),
+                rng,
+                10,
+                0.1,
+              ),
               0.3 + rng() * 0.4,
             );
 
-            let innerStyle = pickStyleForShape(innerShape, layerRenderStyle, rng) as RenderStyle;
+            let innerStyle = pickStyleForShape(
+              innerShape,
+              layerRenderStyle,
+              rng,
+            ) as RenderStyle;
             // Apply clip-heavy cap to nested shapes too
-            if ((innerStyle === "stipple" || innerStyle === "noise-grain") &&
-                clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES) {
+            if (
+              (innerStyle === "stipple" || innerStyle === "noise-grain") &&
+              clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES
+            ) {
               innerStyle = downgradeRenderStyle(innerStyle);
             }
-            if (innerStyle === "stipple" || innerStyle === "noise-grain") clipHeavyCount++;
+            if (innerStyle === "stipple" || innerStyle === "noise-grain")
+              clipHeavyCount++;
             ctx.globalAlpha = layerOpacity * 0.7;
             enhanceShapeGeneration(
               ctx,
@@ -1274,15 +1821,23 @@ export function renderHashArt(
         } else {
           // Drain RNG to keep determinism — each nested shape consumes ~8 rng calls
           for (let n = 0; n < innerCount; n++) {
-            rng(); rng(); rng(); rng(); rng(); rng(); rng(); rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
           }
         }
       }
 
       // ── 5e. Shape constellations — pre-composed groups ─────────
-      const constellationChance = 0.12 + focalProximity * 0.1; // 12-22% near focal
+      const constellationChance = (0.12 + focalProximity * 0.1) * extrasScale; // 12-22% near focal
       if (size > adjustedMaxSize * 0.35 && rng() < constellationChance) {
-        const constellation = CONSTELLATIONS[Math.floor(rng() * CONSTELLATIONS.length)];
+        const constellation =
+          CONSTELLATIONS[Math.floor(rng() * CONSTELLATIONS.length)];
         const members = constellation.build(rng, size);
         const groupRotation = rng() * Math.PI * 2;
 
@@ -1298,26 +1853,43 @@ export function renderHashArt(
             if (mx < 0 || mx > width || my < 0 || my > height) continue;
 
             const memberFill = hexWithAlpha(
-              jitterColorHSL(pickHierarchyColor(colorHierarchy, rng), rng, 8, 0.06),
+              jitterColorHSL(
+                pickHierarchyColor(colorHierarchy, rng),
+                rng,
+                8,
+                0.06,
+              ),
               fillAlpha * 0.8,
             );
             const memberStroke = enforceContrast(
-              jitterColorHSL(strokeBase, rng, 5, 0.04), bgLum,
+              jitterColorHSL(strokeBase, rng, 5, 0.04),
+              bgLum,
             );
 
             ctx.globalAlpha = layerOpacity * 0.6;
             // Use the member's shape if available, otherwise fall back to palette
             const memberShape = shapeNames.includes(member.shape)
               ? member.shape
-              : pickShapeFromPalette(shapePalette, rng, member.size / adjustedMaxSize);
+              : pickShapeFromPalette(
+                  shapePalette,
+                  rng,
+                  member.size / adjustedMaxSize,
+                );
 
-            let memberStyle = pickStyleForShape(memberShape, layerRenderStyle, rng) as RenderStyle;
+            let memberStyle = pickStyleForShape(
+              memberShape,
+              layerRenderStyle,
+              rng,
+            ) as RenderStyle;
             // Apply clip-heavy cap to constellation members too
-            if ((memberStyle === "stipple" || memberStyle === "noise-grain") &&
-                clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES) {
+            if (
+              (memberStyle === "stipple" || memberStyle === "noise-grain") &&
+              clipHeavyCount >= MAX_CLIP_HEAVY_SHAPES
+            ) {
               memberStyle = downgradeRenderStyle(memberStyle);
             }
-            if (memberStyle === "stipple" || memberStyle === "noise-grain") clipHeavyCount++;
+            if (memberStyle === "stipple" || memberStyle === "noise-grain")
+              clipHeavyCount++;
             enhanceShapeGeneration(ctx, memberShape, mx, my, {
               fillColor: memberFill,
               strokeColor: memberStroke,
@@ -1329,21 +1901,36 @@ export function renderHashArt(
               rng,
               activeShapes,
             });
-            shapePositions.push({ x: mx, y: my, size: member.size, shape: memberShape });
-            spatialGrid.insert({ x: mx, y: my, size: member.size, shape: memberShape });
+            shapePositions.push({
+              x: mx,
+              y: my,
+              size: member.size,
+              shape: memberShape,
+            });
+            spatialGrid.insert({
+              x: mx,
+              y: my,
+              size: member.size,
+              shape: memberShape,
+            });
             extrasSpent += RENDER_STYLE_COST[memberStyle] ?? 1;
           }
         } else {
           // Drain RNG — each member consumes ~6 rng calls for colors/style
           for (let m = 0; m < members.length; m++) {
-            rng(); rng(); rng(); rng(); rng(); rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
+            rng();
           }
         }
       }
 
       // ── 5f. Rhythm placement — deliberate geometric progressions ──
       // ~12% of medium-large shapes spawn a rhythmic sequence
-      if (size > adjustedMaxSize * 0.25 && rng() < 0.12) {
+      if (size > adjustedMaxSize * 0.25 && rng() < 0.12 * extrasScale) {
         const rhythmCount = 3 + Math.floor(rng() * 4); // 3-6 shapes
         const rhythmAngle = rng() * Math.PI * 2;
         const rhythmSpacing = size * (0.8 + rng() * 0.6);
@@ -1366,7 +1953,12 @@ export function renderHashArt(
             ctx.globalAlpha = Math.max(0.1, rhythmAlpha);
 
             const rhythmFill = hexWithAlpha(
-              jitterColorHSL(pickHierarchyColor(layerHierarchy, rng), rng, 5, 0.04),
+              jitterColorHSL(
+                pickHierarchyColor(layerHierarchy, rng),
+                rng,
+                5,
+                0.04,
+              ),
               fillAlpha * 0.7,
             );
 
@@ -1381,14 +1973,26 @@ export function renderHashArt(
               rng,
               activeShapes,
             });
-            shapePositions.push({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
-            spatialGrid.insert({ x: rx, y: ry, size: rhythmSize, shape: rhythmShape });
+            shapePositions.push({
+              x: rx,
+              y: ry,
+              size: rhythmSize,
+              shape: rhythmShape,
+            });
+            spatialGrid.insert({
+              x: rx,
+              y: ry,
+              size: rhythmSize,
+              shape: rhythmShape,
+            });
           }
           extrasSpent += rhythmCount * styleCost;
         } else {
           // Drain RNG — each rhythm step consumes ~3 rng calls for colors
           for (let r = 0; r < rhythmCount; r++) {
-            rng(); rng(); rng();
+            rng();
+            rng();
+            rng();
           }
         }
       }
@@ -1397,7 +2001,10 @@ export function renderHashArt(
 
   // Reset blend mode for post-processing passes
   ctx.globalCompositeOperation = "source-over";
-  if (_dt) { _dt.shapeCount = shapePositions.length; _dt.extraCount = extrasSpent; }
+  if (_dt) {
+    _dt.shapeCount = shapePositions.length;
+    _dt.extraCount = extrasSpent;
+  }
   _mark("5_shape_layers");
 
   // ── 5g. (Portal/cutout feature removed — replaced by custom shapes API) ──
@@ -1413,7 +2020,14 @@ export function renderHashArt(
 
   // Width buckets — 6 buckets cover the taper×pressure range
   const FLOW_WIDTH_BUCKETS = 6;
-  type FlowSeg = { x1: number; y1: number; x2: number; y2: number; color: string; alpha: number };
+  type FlowSeg = {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    color: string;
+    alpha: number;
+  };
   const flowBuckets: Array<FlowSeg[]> = [];
   for (let b = 0; b < FLOW_WIDTH_BUCKETS; b++) flowBuckets.push([]);
   // Track the representative width for each bucket
@@ -1431,8 +2045,14 @@ export function renderHashArt(
     if (startWidth > globalMaxFlowWidth) globalMaxFlowWidth = startWidth;
 
     // Variable color: interpolate between two hierarchy colors along the stroke
-    const lineColorStart = enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum);
-    const lineColorEnd = enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum);
+    const lineColorStart = enforceContrast(
+      pickHierarchyColor(colorHierarchy, rng),
+      bgLum,
+    );
+    const lineColorEnd = enforceContrast(
+      pickHierarchyColor(colorHierarchy, rng),
+      bgLum,
+    );
     const lineAlpha = 0.06 + rng() * 0.1;
 
     // Pressure simulation: sinusoidal width variation
@@ -1457,24 +2077,34 @@ export function renderHashArt(
 
       const t = s / steps;
       const taper = 1 - t * 0.8;
-      const pressure = 0.6 + 0.4 * Math.sin(t * pressureFreq * Math.PI + pressurePhase);
+      const pressure =
+        0.6 + 0.4 * Math.sin(t * pressureFreq * Math.PI + pressurePhase);
       const segWidth = startWidth * taper * pressure;
       const segAlpha = lineAlpha * taper;
-      const lineColor = t < 0.5
-        ? hexWithAlpha(lineColorStart, 0.4 + t * 0.2)
-        : hexWithAlpha(lineColorEnd, 0.4 + (1 - t) * 0.2);
+      const lineColor =
+        t < 0.5
+          ? hexWithAlpha(lineColorStart, 0.4 + t * 0.2)
+          : hexWithAlpha(lineColorEnd, 0.4 + (1 - t) * 0.2);
 
       // Quantize width into bucket
       const bucketIdx = Math.min(
         FLOW_WIDTH_BUCKETS - 1,
         Math.floor((segWidth / (globalMaxFlowWidth || 1)) * FLOW_WIDTH_BUCKETS),
       );
-      flowBuckets[bucketIdx].push({ x1: prevX, y1: prevY, x2: fx, y2: fy, color: lineColor, alpha: segAlpha });
+      flowBuckets[bucketIdx].push({
+        x1: prevX,
+        y1: prevY,
+        x2: fx,
+        y2: fy,
+        color: lineColor,
+        alpha: segAlpha,
+      });
       flowBucketWidths[bucketIdx] = segWidth;
 
       // Branching: ~12% chance per step to spawn a thinner child stroke
       if (rng() < 0.12 && s > 5 && s < steps - 10) {
-        const branchAngle = angle + (rng() < 0.5 ? 1 : -1) * (0.3 + rng() * 0.5);
+        const branchAngle =
+          angle + (rng() < 0.5 ? 1 : -1) * (0.3 + rng() * 0.5);
         let bx = fx;
         let by = fy;
         let bPrevX = fx;
@@ -1491,9 +2121,18 @@ export function renderHashArt(
           const bAlpha = lineAlpha * taper * bTaper * 0.6;
           const bBucket = Math.min(
             FLOW_WIDTH_BUCKETS - 1,
-            Math.floor((bSegWidth / (globalMaxFlowWidth || 1)) * FLOW_WIDTH_BUCKETS),
+            Math.floor(
+              (bSegWidth / (globalMaxFlowWidth || 1)) * FLOW_WIDTH_BUCKETS,
+            ),
           );
-          flowBuckets[bBucket].push({ x1: bPrevX, y1: bPrevY, x2: bx, y2: by, color: lineColor, alpha: bAlpha });
+          flowBuckets[bBucket].push({
+            x1: bPrevX,
+            y1: bPrevY,
+            x2: bx,
+            y2: by,
+            color: lineColor,
+            alpha: bAlpha,
+          });
           flowBucketWidths[bBucket] = bSegWidth;
           bPrevX = bx;
           bPrevY = by;
@@ -1545,19 +2184,93 @@ export function renderHashArt(
     }
   }
 
+  // ── 6a. Hero ribbons — a few deliberate brush strokes ──────────
+  // The batched micro flow lines read as faint texture; flow-heavy
+  // archetypes also get 2–4 long, wide, visibly tapered ribbons that
+  // sweep the composition and give "flow" its identity.
+  if (archetype.flowLineMultiplier >= 1.5) {
+    const ribbonCount = Math.min(
+      4,
+      1 + Math.round(archetype.flowLineMultiplier * 0.8),
+    );
+    ctx.lineCap = "round";
+    for (let r = 0; r < ribbonCount; r++) {
+      let rx = width * (0.1 + rng() * 0.8);
+      let ry = height * (0.1 + rng() * 0.8);
+      const steps = 70 + Math.floor(rng() * 60);
+      const stepLen = (4 + rng() * 3) * scaleFactor;
+      const baseWidth = (5 + rng() * 8) * scaleFactor;
+      const colorA = enforceContrast(
+        pickHierarchyColor(colorHierarchy, rng),
+        bgLum,
+      );
+      const colorB = enforceContrast(
+        pickHierarchyColor(colorHierarchy, rng),
+        bgLum,
+      );
+      const ribbonAlpha = 0.09 + rng() * 0.09;
+      let prevX = rx;
+      let prevY = ry;
+      for (let s = 0; s < steps; s++) {
+        const angle = flowAngle(rx, ry) + (rng() - 0.5) * 0.16;
+        rx += Math.cos(angle) * stepLen;
+        ry += Math.sin(angle) * stepLen;
+        if (
+          rx < -width * 0.05 ||
+          rx > width * 1.05 ||
+          ry < -height * 0.05 ||
+          ry > height * 1.05
+        )
+          break;
+        if (isInVoidZone(rx, ry, voidZones)) {
+          prevX = rx;
+          prevY = ry;
+          continue;
+        }
+        const t = s / steps;
+        // Sine envelope: needle-thin at both ends, full-bodied mid-stroke
+        const envelope = Math.pow(Math.sin(Math.PI * t), 0.7);
+        ctx.lineWidth = Math.max(0.4, baseWidth * envelope);
+        ctx.globalAlpha = ribbonAlpha * (0.35 + envelope * 0.65);
+        ctx.strokeStyle = t < 0.5 ? colorA : colorB;
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(rx, ry);
+        ctx.stroke();
+        prevX = rx;
+        prevY = ry;
+      }
+    }
+  }
+
   _mark("6_flow_lines");
 
   // ── 6b. Motion/energy lines — short directional bursts ─────────
   // Optimized: collect all burst segments, then batch by quantized alpha
-  const energyArchetypes = ["dense-chaotic", "cosmic", "neon-glow", "bold-graphic"];
-  const hasEnergyLines = energyArchetypes.some(a => archetype.name.includes(a)) || rng() < 0.25;
+  const energyArchetypes = [
+    "dense-chaotic",
+    "cosmic",
+    "neon-glow",
+    "bold-graphic",
+  ];
+  const hasEnergyLines =
+    energyArchetypes.some((a) => archetype.name.includes(a)) || rng() < 0.25;
   if (hasEnergyLines && shapePositions.length > 0) {
     const energyCount = 5 + Math.floor(rng() * 10);
     ctx.lineCap = "round";
 
     // Collect all energy segments with their computed state
     const ENERGY_ALPHA_BUCKETS = 3;
-    const energyBuckets: Array<Array<{ x1: number; y1: number; x2: number; y2: number; color: string; lw: number }>> = [];
+    const energyBuckets: Array<
+      Array<{
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+        color: string;
+        lw: number;
+      }>
+    > = [];
     for (let b = 0; b < ENERGY_ALPHA_BUCKETS; b++) energyBuckets.push([]);
     const energyAlphas: number[] = new Array(ENERGY_ALPHA_BUCKETS).fill(0);
 
@@ -1568,7 +2281,8 @@ export function renderHashArt(
 
       for (let b = 0; b < burstCount; b++) {
         const angle = baseAngle + (rng() - 0.5) * 1.2;
-        const lineLen = (source.size * 0.3 + rng() * source.size * 0.5) * scaleFactor * 0.3;
+        const lineLen =
+          (source.size * 0.3 + rng() * source.size * 0.5) * scaleFactor * 0.3;
         const startDist = source.size * 0.5;
         const sx = source.x + Math.cos(angle) * startDist;
         const sy = source.y + Math.sin(angle) * startDist;
@@ -1577,13 +2291,24 @@ export function renderHashArt(
 
         const eAlpha = 0.04 + rng() * 0.06;
         const eColor = hexWithAlpha(
-          enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum), 0.3,
+          enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum),
+          0.3,
         );
         const eLw = (0.5 + rng() * 1.5) * scaleFactor;
 
         // Quantize alpha into bucket
-        const bi = Math.min(ENERGY_ALPHA_BUCKETS - 1, Math.floor((eAlpha - 0.04) / 0.06 * ENERGY_ALPHA_BUCKETS));
-        energyBuckets[bi].push({ x1: sx, y1: sy, x2: ex, y2: ey, color: eColor, lw: eLw });
+        const bi = Math.min(
+          ENERGY_ALPHA_BUCKETS - 1,
+          Math.floor(((eAlpha - 0.04) / 0.06) * ENERGY_ALPHA_BUCKETS),
+        );
+        energyBuckets[bi].push({
+          x1: sx,
+          y1: sy,
+          x2: ex,
+          y2: ey,
+          color: eColor,
+          lw: eLw,
+        });
         energyAlphas[bi] = eAlpha;
       }
     }
@@ -1609,6 +2334,10 @@ export function renderHashArt(
   _mark("6b_energy_lines");
 
   // ── 6c. Apply symmetry mirroring ─────────────────────────────────
+  // Reset alpha: the flow/energy passes leave a low globalAlpha, which
+  // previously made the mirror blit a near-invisible ghost — symmetry
+  // never actually appeared despite being selected.
+  ctx.globalAlpha = 1;
   if (symmetryMode !== "none") {
     const canvas = ctx.canvas;
     ctx.save();
@@ -1616,19 +2345,38 @@ export function renderHashArt(
       ctx.save();
       ctx.translate(width, 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(canvas, 0, 0, Math.ceil(cx), height, 0, 0, Math.ceil(cx), height);
+      ctx.drawImage(
+        canvas,
+        0,
+        0,
+        Math.ceil(cx),
+        height,
+        0,
+        0,
+        Math.ceil(cx),
+        height,
+      );
       ctx.restore();
     }
     if (symmetryMode === "bilateral-y" || symmetryMode === "quad") {
       ctx.save();
       ctx.translate(0, height);
       ctx.scale(1, -1);
-      ctx.drawImage(canvas, 0, 0, width, Math.ceil(cy), 0, 0, width, Math.ceil(cy));
+      ctx.drawImage(
+        canvas,
+        0,
+        0,
+        width,
+        Math.ceil(cy),
+        0,
+        0,
+        width,
+        Math.ceil(cy),
+      );
       ctx.restore();
     }
     ctx.restore();
   }
-
 
   _mark("6c_symmetry");
 
@@ -1652,15 +2400,24 @@ export function renderHashArt(
 
   _mark("7_noise_texture");
 
-  // ── 8. Vignette — darken edges to draw the eye inward ───────────
+  // ── 8. Vignette — a whisper of edge darkening, not a halo ───────
+  // Heavy vignettes created an "egg glow" silhouette that amplified the
+  // centered-blob look, especially on light backgrounds.
   ctx.globalAlpha = 1;
-  const vignetteStrength = 0.25 + rng() * 0.2;
-  const vigGrad = ctx.createRadialGradient(cx, cy, Math.min(width, height) * 0.3, cx, cy, bgRadius);
-  // Tint vignette based on background: warm sepia for light, cool blue for dark
   const isLightBg = bgLum > 0.5;
+  const vignetteStrength = isLightBg ? 0.06 + rng() * 0.08 : 0.12 + rng() * 0.1;
+  const vigGrad = ctx.createRadialGradient(
+    cx,
+    cy,
+    Math.min(width, height) * 0.35,
+    cx,
+    cy,
+    bgRadius,
+  );
+  // Tint vignette based on background: warm sepia for light, classic dark otherwise
   const vignetteColor = isLightBg
-    ? `rgba(80,60,30,${vignetteStrength.toFixed(3)})`   // warm sepia
-    : `rgba(0,0,0,${vignetteStrength.toFixed(3)})`;      // classic dark
+    ? `rgba(80,60,30,${vignetteStrength.toFixed(3)})` // warm sepia
+    : `rgba(0,0,0,${vignetteStrength.toFixed(3)})`; // classic dark
   vigGrad.addColorStop(0, "rgba(0,0,0,0)");
   vigGrad.addColorStop(0.6, "rgba(0,0,0,0)");
   vigGrad.addColorStop(1, vignetteColor);
@@ -1679,7 +2436,16 @@ export function renderHashArt(
 
     // Collect curves into 3 alpha buckets
     const CURVE_ALPHA_BUCKETS = 3;
-    const curveBuckets: Array<Array<{ ax: number; ay: number; cpx: number; cpy: number; bx: number; by: number }>> = [];
+    const curveBuckets: Array<
+      Array<{
+        ax: number;
+        ay: number;
+        cpx: number;
+        cpy: number;
+        bx: number;
+        by: number;
+      }>
+    > = [];
     const curveColors: string[] = [];
     const curveAlphas: number[] = new Array(CURVE_ALPHA_BUCKETS).fill(0);
     for (let b = 0; b < CURVE_ALPHA_BUCKETS; b++) curveBuckets.push([]);
@@ -1715,7 +2481,10 @@ export function renderHashArt(
         0.3,
       );
 
-      const bi = Math.min(CURVE_ALPHA_BUCKETS - 1, Math.floor((curveAlpha - 0.06) / 0.1 * CURVE_ALPHA_BUCKETS));
+      const bi = Math.min(
+        CURVE_ALPHA_BUCKETS - 1,
+        Math.floor(((curveAlpha - 0.06) / 0.1) * CURVE_ALPHA_BUCKETS),
+      );
       curveBuckets[bi].push({ ax: a.x, ay: a.y, cpx, cpy, bx: b.x, by: b.y });
       curveAlphas[bi] = curveAlpha;
       if (!curveColors[bi]) curveColors[bi] = curveColor;
@@ -1796,6 +2565,177 @@ export function renderHashArt(
     ctx.globalCompositeOperation = "source-over";
   }
 
+  // ── 10e. Material layer — torn-paper deckle + vellum sheets ─────
+  // Whole-image physical treatments that make the composition read as
+  // an object (a print on torn paper, layered translucent sheets)
+  // rather than pixels floating in a rectangle.
+  {
+    const paperArchetypes = [
+      "collage",
+      "watercolor-wash",
+      "monochrome-ink",
+      "stipple-portrait",
+      "botanical",
+      "minimal-spacious",
+    ];
+    const isPaperArch = paperArchetypes.some((a) =>
+      archetype.name.startsWith(a),
+    );
+
+    // Torn-paper deckle frame — irregular hand-torn edge masking the
+    // canvas boundary. Paper color matches the background family.
+    if (isPaperArch && rng() < 0.5) {
+      const pad = Math.min(width, height) * (0.02 + rng() * 0.02);
+      const isLight = bgLum > 0.5;
+      const paperColor = isLight ? "#f6f3ec" : adjustLightness(bgStart, -0.04);
+
+      // Sample perimeter points (clockwise) with smoothed inset wobble
+      const per = 2 * (width + height);
+      const step = per / (48 + Math.floor(rng() * 24));
+      const raw: Array<{ x: number; y: number; nx: number; ny: number }> = [];
+      for (let d = 0; d < per; d += step) {
+        let x: number;
+        let y: number;
+        let nx: number;
+        let ny: number;
+        if (d < width) {
+          x = d;
+          y = 0;
+          nx = 0;
+          ny = 1;
+        } else if (d < width + height) {
+          x = width;
+          y = d - width;
+          nx = -1;
+          ny = 0;
+        } else if (d < 2 * width + height) {
+          x = width - (d - width - height);
+          y = height;
+          nx = 0;
+          ny = -1;
+        } else {
+          x = 0;
+          y = height - (d - 2 * width - height);
+          nx = 1;
+          ny = 0;
+        }
+        raw.push({ x, y, nx, ny });
+      }
+      // Smoothed wobble: average of three raw rolls per point
+      const wobbles = raw.map(() => rng());
+      const inner: Array<{ x: number; y: number }> = raw.map((p, i) => {
+        const w3 =
+          (wobbles[(i + raw.length - 1) % raw.length] +
+            wobbles[i] +
+            wobbles[(i + 1) % raw.length]) /
+          3;
+        const inset = pad * (0.4 + w3 * 1.1);
+        return { x: p.x + p.nx * inset, y: p.y + p.ny * inset };
+      });
+
+      // Fill the band between the frame and the deckle edge (evenodd)
+      ctx.save();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = paperColor;
+      ctx.beginPath();
+      ctx.rect(0, 0, width, height);
+      const n = inner.length;
+      const mid = (
+        a: { x: number; y: number },
+        b: { x: number; y: number },
+      ) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      let m = mid(inner[0], inner[1]);
+      ctx.moveTo(m.x, m.y);
+      for (let i = 1; i <= n; i++) {
+        const p = inner[i % n];
+        m = mid(p, inner[(i + 1) % n]);
+        ctx.quadraticCurveTo(p.x, p.y, m.x, m.y);
+      }
+      ctx.closePath();
+      ctx.fill("evenodd");
+
+      // Soft shadow just inside the torn edge for physical depth
+      ctx.globalAlpha = isLight ? 0.1 : 0.22;
+      ctx.strokeStyle = isLight ? "rgba(60,50,35,1)" : "rgba(0,0,0,1)";
+      ctx.lineWidth = Math.max(0.8, 1.4 * scaleFactor);
+      ctx.beginPath();
+      m = mid(inner[0], inner[1]);
+      ctx.moveTo(m.x, m.y);
+      for (let i = 1; i <= n; i++) {
+        const p = inner[i % n];
+        m = mid(p, inner[(i + 1) % n]);
+        ctx.quadraticCurveTo(p.x, p.y, m.x, m.y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Vellum sheets — 1-2 large translucent panels laid over part of
+    // the composition, like layered tracing paper in a collage.
+    if (rng() < 0.18) {
+      const sheetCount = 1 + (rng() < 0.35 ? 1 : 0);
+      ctx.save();
+      for (let sh = 0; sh < sheetCount; sh++) {
+        const cxS = width * (0.15 + rng() * 0.7);
+        const cyS = height * (0.15 + rng() * 0.7);
+        const sw = width * (0.3 + rng() * 0.35);
+        const shH = height * (0.3 + rng() * 0.35);
+        const rot = (rng() - 0.5) * 0.5;
+        const isLight = bgLum > 0.5;
+        const sheetAlpha = isLight ? 0.09 + rng() * 0.07 : 0.05 + rng() * 0.04;
+
+        ctx.save();
+        ctx.translate(cxS, cyS);
+        ctx.rotate(rot);
+        // Torn quad: corners + jittered edge midpoints
+        const hw = sw / 2;
+        const hh = shH / 2;
+        const jitter = () => (rng() - 0.5) * Math.min(hw, hh) * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(-hw + jitter(), -hh + jitter());
+        ctx.quadraticCurveTo(
+          jitter(),
+          -hh + jitter(),
+          hw + jitter(),
+          -hh + jitter(),
+        );
+        ctx.quadraticCurveTo(
+          hw + jitter(),
+          jitter(),
+          hw + jitter(),
+          hh + jitter(),
+        );
+        ctx.quadraticCurveTo(
+          jitter(),
+          hh + jitter(),
+          -hw + jitter(),
+          hh + jitter(),
+        );
+        ctx.quadraticCurveTo(
+          -hw + jitter(),
+          jitter(),
+          -hw + jitter(),
+          -hh + jitter(),
+        );
+        ctx.closePath();
+        ctx.globalAlpha = sheetAlpha;
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        // Faint edge to sell the sheet boundary
+        ctx.globalAlpha = sheetAlpha * 1.6;
+        ctx.strokeStyle = isLight
+          ? "rgba(120,110,95,1)"
+          : "rgba(255,255,255,1)";
+        ctx.lineWidth = Math.max(0.6, 0.9 * scaleFactor);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+  }
+
   _mark("10_post_processing");
 
   // ── 10e. Generative borders — archetype-driven decorative frames ──
@@ -1809,19 +2749,33 @@ export function renderHashArt(
     const borderColorSolid = colorHierarchy.accent;
     const archName = archetype.name;
 
-    if (archName.includes("geometric") || archName.includes("op-art") || archName.includes("shattered")) {
+    if (
+      archName.includes("geometric") ||
+      archName.includes("op-art") ||
+      archName.includes("shattered")
+    ) {
       // Clean ruled lines with corner ornaments
       ctx.strokeStyle = borderColor;
       ctx.lineWidth = Math.max(1, 1.5 * scaleFactor);
       ctx.globalAlpha = 0.18 + borderRng() * 0.1;
 
       // Outer rule
-      ctx.strokeRect(borderPad, borderPad, width - borderPad * 2, height - borderPad * 2);
+      ctx.strokeRect(
+        borderPad,
+        borderPad,
+        width - borderPad * 2,
+        height - borderPad * 2,
+      );
       // Inner rule (thinner, offset)
       const innerPad = borderPad * 1.8;
       ctx.lineWidth = Math.max(0.5, 0.8 * scaleFactor);
       ctx.globalAlpha *= 0.7;
-      ctx.strokeRect(innerPad, innerPad, width - innerPad * 2, height - innerPad * 2);
+      ctx.strokeRect(
+        innerPad,
+        innerPad,
+        width - innerPad * 2,
+        height - innerPad * 2,
+      );
 
       // Corner ornaments — small squares at each corner
       const ornSize = borderPad * 0.6;
@@ -1842,7 +2796,11 @@ export function renderHashArt(
         ctx.lineTo(cx2, cy2 + ornSize);
         ctx.stroke();
       }
-    } else if (archName.includes("botanical") || archName.includes("organic") || archName.includes("watercolor")) {
+    } else if (
+      archName.includes("botanical") ||
+      archName.includes("organic") ||
+      archName.includes("watercolor")
+    ) {
       // Vine tendrils — organic curving lines along edges
       // Optimized: batch all tendrils into a single path
       ctx.strokeStyle = hexWithAlpha(colorHierarchy.secondary, 0.15);
@@ -1857,10 +2815,19 @@ export function renderHashArt(
         // Start from a random edge point
         const edge = Math.floor(borderRng() * 4);
         let tx: number, ty: number;
-        if (edge === 0) { tx = borderRng() * width; ty = borderPad; }
-        else if (edge === 1) { tx = borderRng() * width; ty = height - borderPad; }
-        else if (edge === 2) { tx = borderPad; ty = borderRng() * height; }
-        else { tx = width - borderPad; ty = borderRng() * height; }
+        if (edge === 0) {
+          tx = borderRng() * width;
+          ty = borderPad;
+        } else if (edge === 1) {
+          tx = borderRng() * width;
+          ty = height - borderPad;
+        } else if (edge === 2) {
+          tx = borderPad;
+          ty = borderRng() * height;
+        } else {
+          tx = width - borderPad;
+          ty = borderRng() * height;
+        }
 
         ctx.moveTo(tx, ty);
         const segs = 3 + Math.floor(borderRng() * 4);
@@ -1869,7 +2836,13 @@ export function renderHashArt(
           // Curl inward from edge
           const cpx2 = tx + (borderRng() - 0.5) * borderPad * 4;
           const cpy2 = ty + (edge < 2 ? (edge === 0 ? inward : -inward) : 0);
-          const cpx3 = tx + (edge >= 2 ? (edge === 2 ? inward : -inward) : (borderRng() - 0.5) * borderPad * 3);
+          const cpx3 =
+            tx +
+            (edge >= 2
+              ? edge === 2
+                ? inward
+                : -inward
+              : (borderRng() - 0.5) * borderPad * 3);
           const cpy3 = ty + (borderRng() - 0.5) * borderPad * 3;
           tx = cpx3;
           ty = cpy3;
@@ -1878,7 +2851,11 @@ export function renderHashArt(
 
         // Collect leaf positions for batch fill
         if (borderRng() < 0.6) {
-          leafPositions.push({ x: tx, y: ty, r: borderPad * (0.15 + borderRng() * 0.2) });
+          leafPositions.push({
+            x: tx,
+            y: ty,
+            r: borderPad * (0.15 + borderRng() * 0.2),
+          });
         }
       }
       ctx.stroke();
@@ -1893,7 +2870,11 @@ export function renderHashArt(
         }
         ctx.fill();
       }
-    } else if (archName.includes("celestial") || archName.includes("cosmic") || archName.includes("neon")) {
+    } else if (
+      archName.includes("celestial") ||
+      archName.includes("cosmic") ||
+      archName.includes("neon")
+    ) {
       // Star-studded arcs along edges
       ctx.globalAlpha = 0.1 + borderRng() * 0.08;
       ctx.fillStyle = hexWithAlpha(colorHierarchy.accent, 0.2);
@@ -1914,10 +2895,19 @@ export function renderHashArt(
       for (let s = 0; s < starCount; s++) {
         const edge = Math.floor(borderRng() * 4);
         let sx: number, sy: number;
-        if (edge === 0) { sx = borderRng() * width; sy = borderPad * (0.5 + borderRng()); }
-        else if (edge === 1) { sx = borderRng() * width; sy = height - borderPad * (0.5 + borderRng()); }
-        else if (edge === 2) { sx = borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
-        else { sx = width - borderPad * (0.5 + borderRng()); sy = borderRng() * height; }
+        if (edge === 0) {
+          sx = borderRng() * width;
+          sy = borderPad * (0.5 + borderRng());
+        } else if (edge === 1) {
+          sx = borderRng() * width;
+          sy = height - borderPad * (0.5 + borderRng());
+        } else if (edge === 2) {
+          sx = borderPad * (0.5 + borderRng());
+          sy = borderRng() * height;
+        } else {
+          sx = width - borderPad * (0.5 + borderRng());
+          sy = borderRng() * height;
+        }
 
         const starR = (1 + borderRng() * 2.5) * scaleFactor;
         // 4-point star
@@ -1932,12 +2922,21 @@ export function renderHashArt(
         ctx.closePath();
       }
       ctx.fill();
-    } else if (archName.includes("minimal") || archName.includes("monochrome") || archName.includes("stipple")) {
+    } else if (
+      archName.includes("minimal") ||
+      archName.includes("monochrome") ||
+      archName.includes("stipple")
+    ) {
       // Thin single rule — understated elegance
       ctx.strokeStyle = hexWithAlpha(colorHierarchy.dominant, 0.1);
       ctx.lineWidth = Math.max(0.5, 0.6 * scaleFactor);
       ctx.globalAlpha = 0.1 + borderRng() * 0.06;
-      ctx.strokeRect(borderPad * 1.5, borderPad * 1.5, width - borderPad * 3, height - borderPad * 3);
+      ctx.strokeRect(
+        borderPad * 1.5,
+        borderPad * 1.5,
+        width - borderPad * 3,
+        height - borderPad * 3,
+      );
     }
     // Other archetypes: no border (intentional — not every image needs one)
 
@@ -1954,10 +2953,10 @@ export function renderHashArt(
 
     // Find the corner with the lowest local density
     const cornerCandidates = [
-      { x: sigMargin, y: sigMargin },                         // top-left
-      { x: width - sigMargin, y: sigMargin },                 // top-right
-      { x: sigMargin, y: height - sigMargin },                // bottom-left
-      { x: width - sigMargin, y: height - sigMargin },        // bottom-right
+      { x: sigMargin, y: sigMargin }, // top-left
+      { x: width - sigMargin, y: sigMargin }, // top-right
+      { x: sigMargin, y: height - sigMargin }, // bottom-left
+      { x: width - sigMargin, y: height - sigMargin }, // bottom-right
     ];
     let bestCorner = cornerCandidates[3]; // default: bottom-right
     let minDensity = Infinity;

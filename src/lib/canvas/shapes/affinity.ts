@@ -63,7 +63,13 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     tier: 1,
     minSizeFraction: 0.05,
     maxSizeFraction: 1.0,
-    affinities: ["hexagon", "circle", "flowerOfLife", "metatronsCube", "triangle"],
+    affinities: [
+      "hexagon",
+      "circle",
+      "flowerOfLife",
+      "metatronsCube",
+      "triangle",
+    ],
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-only", "fill-and-stroke", "watercolor"],
@@ -118,10 +124,10 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   platonicSolid: {
     tier: 2,
     minSizeFraction: 0.15,
-    maxSizeFraction: 0.8,
+    maxSizeFraction: 0.5,
     affinities: ["metatronsCube", "merkaba", "hexagon", "triangle"],
     category: "complex",
-    heroCandidate: true,
+    heroCandidate: false,
     bestStyles: ["stroke-only", "double-stroke", "dashed"],
   },
   fibonacciSpiral: {
@@ -136,7 +142,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   islamicPattern: {
     tier: 2,
     minSizeFraction: 0.25,
-    maxSizeFraction: 0.9,
+    maxSizeFraction: 0.5,
     affinities: ["square", "hexagon", "star", "mandala"],
     category: "complex",
     heroCandidate: true,
@@ -161,9 +167,9 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     bestStyles: ["stroke-only", "fill-and-stroke", "double-stroke"],
   },
   mandala: {
-    tier: 1,
+    tier: 2,
     minSizeFraction: 0.2,
-    maxSizeFraction: 1.0,
+    maxSizeFraction: 0.55,
     affinities: ["circle", "flowerOfLife", "spirograph", "rose"],
     category: "complex",
     heroCandidate: true,
@@ -184,7 +190,13 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     tier: 1,
     minSizeFraction: 0.2,
     maxSizeFraction: 1.0,
-    affinities: ["circle", "hexagon", "seedOfLife", "eggOfLife", "metatronsCube"],
+    affinities: [
+      "circle",
+      "hexagon",
+      "seedOfLife",
+      "eggOfLife",
+      "metatronsCube",
+    ],
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor", "incomplete"],
@@ -201,16 +213,16 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   metatronsCube: {
     tier: 1,
     minSizeFraction: 0.2,
-    maxSizeFraction: 1.0,
+    maxSizeFraction: 0.6,
     affinities: ["hexagon", "flowerOfLife", "platonicSolid", "merkaba"],
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "dashed", "incomplete"],
   },
   sriYantra: {
-    tier: 1,
+    tier: 2,
     minSizeFraction: 0.2,
-    maxSizeFraction: 1.0,
+    maxSizeFraction: 0.5,
     affinities: ["triangle", "merkaba", "mandala", "diamond"],
     category: "sacred",
     heroCandidate: true,
@@ -237,7 +249,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   torus: {
     tier: 3,
     minSizeFraction: 0.2,
-    maxSizeFraction: 0.6,
+    maxSizeFraction: 0.45,
     affinities: ["circle", "spirograph", "waveRing"],
     category: "sacred",
     heroCandidate: false,
@@ -258,10 +270,10 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     tier: 1,
     minSizeFraction: 0.05,
     maxSizeFraction: 1.0,
-    affinities: ["blob", "circle", "superellipse", "waveRing"],
+    affinities: ["blob", "circle", "superellipse", "waveRing", "noiseForm"],
     category: "procedural",
     heroCandidate: false,
-    bestStyles: ["fill-only", "watercolor", "fill-and-stroke", "hand-drawn"],
+    bestStyles: ["fill-only", "watercolor", "ink-bleed", "hand-drawn"],
   },
   ngon: {
     tier: 2,
@@ -293,7 +305,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   spirograph: {
     tier: 1,
     minSizeFraction: 0.15,
-    maxSizeFraction: 0.9,
+    maxSizeFraction: 0.65,
     affinities: ["rose", "lissajous", "mandala", "flowerOfLife"],
     category: "procedural",
     heroCandidate: true,
@@ -311,7 +323,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   rose: {
     tier: 1,
     minSizeFraction: 0.1,
-    maxSizeFraction: 0.9,
+    maxSizeFraction: 0.65,
     affinities: ["spirograph", "mandala", "flowerOfLife", "circle"],
     category: "procedural",
     heroCandidate: true,
@@ -371,15 +383,16 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     affinities: ["blob", "tendril", "shardField", "star"],
     category: "procedural",
     heroCandidate: false,
-    bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    bestStyles: ["ink-bleed", "drip", "fill-only", "watercolor"],
   },
   geodesicDome: {
     tier: 2,
-    minSizeFraction: 0.2,
-    maxSizeFraction: 0.9,
+    minSizeFraction: 0.15,
+    // Capped small — full-size wireframe domes read as pasted decals
+    maxSizeFraction: 0.5,
     affinities: ["metatronsCube", "platonicSolid", "hexagon", "triangle"],
     category: "procedural",
-    heroCandidate: true,
+    heroCandidate: false,
     bestStyles: ["stroke-only", "dashed", "double-stroke"],
   },
   penroseTile: {
@@ -412,11 +425,31 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
   crosshatchPatch: {
     tier: 3,
     minSizeFraction: 0.1,
-    maxSizeFraction: 0.6,
+    maxSizeFraction: 0.35,
     affinities: ["voronoiCell", "ngon", "superellipse"],
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "hatched", "fabric-weave"],
+  },
+
+  // ── Noise-field organic forms (no fixed silhouette) ───────────
+  noiseForm: {
+    tier: 1,
+    minSizeFraction: 0.08,
+    maxSizeFraction: 1.0,
+    affinities: ["blob", "cloudForm", "circle", "inkSplat", "contourField"],
+    category: "procedural",
+    heroCandidate: true,
+    bestStyles: ["fill-only", "watercolor", "ink-bleed", "hand-drawn"],
+  },
+  contourField: {
+    tier: 2,
+    minSizeFraction: 0.15,
+    maxSizeFraction: 0.8,
+    affinities: ["noiseForm", "waveRing", "blob", "circle"],
+    category: "procedural",
+    heroCandidate: false,
+    bestStyles: ["stroke-only", "incomplete", "fill-and-stroke"],
   },
 };
 
@@ -480,9 +513,10 @@ export function buildShapePalette(
   const heroPool = available.filter(
     (s) => SHAPE_PROFILES[s].tier === 1 && SHAPE_PROFILES[s].heroCandidate,
   );
-  const seedShape = heroPool.length > 0
-    ? heroPool[Math.floor(rng() * heroPool.length)]
-    : available[Math.floor(rng() * available.length)];
+  const seedShape =
+    heroPool.length > 0
+      ? heroPool[Math.floor(rng() * heroPool.length)]
+      : available[Math.floor(rng() * available.length)];
 
   const seedProfile = SHAPE_PROFILES[seedShape];
 
@@ -506,7 +540,11 @@ export function buildShapePalette(
   // Add same-category tier 1-2 shapes
   for (const s of available) {
     const p = SHAPE_PROFILES[s];
-    if (p.category === seedProfile.category && p.tier <= 2 && !primary.includes(s)) {
+    if (
+      p.category === seedProfile.category &&
+      p.tier <= 2 &&
+      !primary.includes(s)
+    ) {
       supportingSet.add(s);
     }
   }
@@ -533,32 +571,149 @@ export function buildShapePalette(
   accents.push(...shuffled.slice(0, 3));
 
   // For certain archetypes, bias the palette
+
+  // Poster-flat archetypes: large flat shapes carry these compositions,
+  // so dense wireframe/pattern shapes (mandalas, lattices, webs) are
+  // swapped out for clean silhouettes.
+  const POSTER_ARCHETYPES = [
+    "bold-graphic",
+    "minimal-spacious",
+    "collage",
+    "op-art",
+  ];
+  if (POSTER_ARCHETYPES.some((a) => archetypeName.startsWith(a))) {
+    const detailed = new Set([
+      "mandala",
+      "platonicSolid",
+      "spirograph",
+      "metatronsCube",
+      "geodesicDome",
+      "islamicPattern",
+      "celticKnot",
+      "crosshatchPatch",
+      "dotCluster",
+      "fractal",
+      "treeOfLife",
+      "sriYantra",
+      "torus",
+      "lissajous",
+      "waveRing",
+      "rose",
+      "flowerOfLife",
+      "seedOfLife",
+      "eggOfLife",
+      "fibonacciSpiral",
+      "jacked-star",
+    ]);
+    const flat = [
+      "crescent",
+      "reuleauxTriangle",
+      "circle",
+      "triangle",
+      "superellipse",
+      "hexagon",
+      "diamond",
+      "square",
+      "ngon",
+      "blob",
+      "penroseTile",
+    ].filter((s) => available.includes(s));
+    const posterPrimary = primary.filter((s) => !detailed.has(s));
+    for (const s of flat) {
+      if (posterPrimary.length >= 5) break;
+      if (!posterPrimary.includes(s)) posterPrimary.push(s);
+    }
+    const posterSupporting = supporting.filter((s) => !detailed.has(s));
+    for (const s of flat) {
+      if (posterSupporting.length >= 5) break;
+      if (!posterPrimary.includes(s) && !posterSupporting.includes(s))
+        posterSupporting.push(s);
+    }
+    return {
+      primary: posterPrimary,
+      supporting: posterSupporting,
+      accents: accents.filter((s) => !detailed.has(s)),
+    };
+  }
+
+  // Soft-wash archetypes: wireframe lattices fight the watercolor feel,
+  // so organic silhouettes take their place.
+  const SOFT_ARCHETYPES = ["watercolor-wash", "ethereal", "organic-flow"];
+  if (SOFT_ARCHETYPES.some((a) => archetypeName.startsWith(a))) {
+    const wiry = new Set([
+      "platonicSolid",
+      "metatronsCube",
+      "geodesicDome",
+      "islamicPattern",
+      "celticKnot",
+      "crosshatchPatch",
+      "treeOfLife",
+      "merkaba",
+      "cube",
+      "jacked-star",
+      "sriYantra",
+      "fractal",
+      "mandala",
+    ]);
+    const soft = [
+      "noiseForm",
+      "blob",
+      "cloudForm",
+      "circle",
+      "crescent",
+      "superellipse",
+      "waveRing",
+      "contourField",
+      "rose",
+      "seedOfLife",
+      "vesicaPiscis",
+    ].filter((s) => available.includes(s));
+    const softPrimary = primary.filter((s) => !wiry.has(s));
+    for (const s of soft) {
+      if (softPrimary.length >= 5) break;
+      if (!softPrimary.includes(s)) softPrimary.push(s);
+    }
+    const softSupporting = supporting.filter((s) => !wiry.has(s));
+    for (const s of soft) {
+      if (softSupporting.length >= 6) break;
+      if (!softPrimary.includes(s) && !softSupporting.includes(s))
+        softSupporting.push(s);
+    }
+    return {
+      primary: softPrimary,
+      supporting: softSupporting,
+      accents: accents.filter((s) => !wiry.has(s)),
+    };
+  }
+
   if (archetypeName === "geometric-precision") {
     // Remove blobs and organic shapes from primary
     return {
-      primary: primary.filter((s) => SHAPE_PROFILES[s]?.category !== "procedural" || s === "ngon"),
+      primary: primary.filter(
+        (s) => SHAPE_PROFILES[s]?.category !== "procedural" || s === "ngon",
+      ),
       supporting: supporting.filter((s) => s !== "blob"),
-      accents,
-    };
-  }
-  if (archetypeName === "organic-flow") {
-    // Boost procedural/organic shapes
-    const organicBoost = available.filter(
-      (s) => ["blob", "superellipse", "waveRing", "rose"].includes(s) && !primary.includes(s),
-    );
-    return {
-      primary: [...primary, ...organicBoost.slice(0, 2)],
-      supporting,
       accents,
     };
   }
   if (archetypeName === "shattered-glass") {
     // Favor angular, fragmented shapes
     const shardBoost = available.filter(
-      (s) => ["shardField", "voronoiCell", "penroseTile", "diamond", "triangle", "ngon"].includes(s) && !primary.includes(s),
+      (s) =>
+        [
+          "shardField",
+          "voronoiCell",
+          "penroseTile",
+          "diamond",
+          "triangle",
+          "ngon",
+        ].includes(s) && !primary.includes(s),
     );
     return {
-      primary: [...primary.filter((s) => s !== "blob" && s !== "cloudForm"), ...shardBoost.slice(0, 3)],
+      primary: [
+        ...primary.filter((s) => s !== "blob" && s !== "cloudForm"),
+        ...shardBoost.slice(0, 3),
+      ],
       supporting: supporting.filter((s) => s !== "blob" && s !== "cloudForm"),
       accents,
     };
@@ -566,7 +721,16 @@ export function buildShapePalette(
   if (archetypeName === "botanical") {
     // Favor organic, flowing shapes
     const botanicalBoost = available.filter(
-      (s) => ["tendril", "cloudForm", "blob", "crescent", "rose", "inkSplat"].includes(s) && !primary.includes(s),
+      (s) =>
+        [
+          "noiseForm",
+          "tendril",
+          "cloudForm",
+          "blob",
+          "crescent",
+          "rose",
+          "inkSplat",
+        ].includes(s) && !primary.includes(s),
     );
     return {
       primary: [...primary, ...botanicalBoost.slice(0, 3)],
@@ -577,7 +741,14 @@ export function buildShapePalette(
   if (archetypeName === "stipple-portrait") {
     // Favor small, dot-friendly shapes
     const stippleBoost = available.filter(
-      (s) => ["dotCluster", "circle", "crosshatchPatch", "voronoiCell", "blob"].includes(s) && !primary.includes(s),
+      (s) =>
+        [
+          "dotCluster",
+          "circle",
+          "crosshatchPatch",
+          "voronoiCell",
+          "blob",
+        ].includes(s) && !primary.includes(s),
     );
     return {
       primary: [...primary, ...stippleBoost.slice(0, 3)],
@@ -588,7 +759,15 @@ export function buildShapePalette(
   if (archetypeName === "celestial") {
     // Favor sacred geometry and cosmic shapes
     const celestialBoost = available.filter(
-      (s) => ["crescent", "geodesicDome", "mandala", "flowerOfLife", "spirograph", "fibonacciSpiral"].includes(s) && !primary.includes(s),
+      (s) =>
+        [
+          "crescent",
+          "geodesicDome",
+          "mandala",
+          "flowerOfLife",
+          "spirograph",
+          "fibonacciSpiral",
+        ].includes(s) && !primary.includes(s),
     );
     return {
       primary: [...primary, ...celestialBoost.slice(0, 3)],
@@ -613,22 +792,34 @@ export function pickShapeFromPalette(
   // Filter each tier by size constraints
   const validPrimary = palette.primary.filter((s) => {
     const p = SHAPE_PROFILES[s];
-    return p && sizeFraction >= p.minSizeFraction && sizeFraction <= p.maxSizeFraction;
+    return (
+      p &&
+      sizeFraction >= p.minSizeFraction &&
+      sizeFraction <= p.maxSizeFraction
+    );
   });
   const validSupporting = palette.supporting.filter((s) => {
     const p = SHAPE_PROFILES[s];
-    return p && sizeFraction >= p.minSizeFraction && sizeFraction <= p.maxSizeFraction;
+    return (
+      p &&
+      sizeFraction >= p.minSizeFraction &&
+      sizeFraction <= p.maxSizeFraction
+    );
   });
   const validAccents = palette.accents.filter((s) => {
     const p = SHAPE_PROFILES[s];
-    return p && sizeFraction >= p.minSizeFraction && sizeFraction <= p.maxSizeFraction;
+    return (
+      p &&
+      sizeFraction >= p.minSizeFraction &&
+      sizeFraction <= p.maxSizeFraction
+    );
   });
 
   const roll = rng();
-  if (roll < 0.60 && validPrimary.length > 0) {
+  if (roll < 0.6 && validPrimary.length > 0) {
     return validPrimary[Math.floor(rng() * validPrimary.length)];
   }
-  if (roll < 0.90 && validSupporting.length > 0) {
+  if (roll < 0.9 && validSupporting.length > 0) {
     return validSupporting[Math.floor(rng() * validSupporting.length)];
   }
   if (validAccents.length > 0) {

@@ -2,6 +2,7 @@ import { basicShapes } from "./basic";
 import { complexShapes } from "./complex";
 import { sacredShapes } from "./sacred";
 import { proceduralShapes } from "./procedural";
+import { organicShapes } from "./organic";
 
 type DrawFunction = (
   ctx: CanvasRenderingContext2D,
@@ -14,4 +15,5 @@ export const shapes: Record<string, DrawFunction> = {
   ...complexShapes,
   ...sacredShapes,
   ...proceduralShapes,
+  ...organicShapes,
 };

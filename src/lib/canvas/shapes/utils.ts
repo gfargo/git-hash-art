@@ -25,13 +25,13 @@ export const applyTransforms = (
   config: ShapeConfig,
 ): void => {
   ctx.save();
-  ctx.translate(0, 0);
   if (config.rotation) {
     ctx.rotate(degToRad(config.rotation));
   }
-  ctx.lineWidth = config.lineWidth;
-  ctx.strokeStyle = config.strokeStyle;
-  ctx.fillStyle = config.fillStyle;
+  // Style state (fillStyle/strokeStyle/lineWidth) is inherited from the
+  // caller's context — the renderer sets palette-driven colors before
+  // invoking a shape, and overriding them here forced every complex
+  // shape to render as a 1px black wireframe regardless of palette.
 };
 
 export const restoreContext = (ctx: CanvasRenderingContext2D): void => {

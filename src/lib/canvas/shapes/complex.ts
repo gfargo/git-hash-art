@@ -75,9 +75,6 @@ export const drawPlatonicSolid: DrawFunction = (ctx, size, config = {}) => {
     });
   });
 
-  if (finalConfig.fillStyle !== "transparent") {
-    ctx.fill();
-  }
   ctx.stroke();
   restoreContext(ctx);
 };
@@ -90,26 +87,25 @@ export const drawFibonacciSpiral: DrawFunction = (ctx, size, config = {}) => {
   };
   applyTransforms(ctx, size, finalConfig);
 
-  let current = 1;
-  let previous = 1;
-  let scale = size / Math.pow(finalConfig.growthFactor, finalConfig.iterations);
+  // Centered golden spiral: radius grows by the golden ratio every
+  // quarter turn. The old implementation accumulated translate/rotate
+  // from the origin, so the spiral drew entirely outside its own
+  // bounding box and read as a scratchy off-center claw.
+  const turns = 2.5;
+  const maxTheta = turns * Math.PI * 2;
+  const b = Math.log(finalConfig.growthFactor) / (Math.PI / 2);
+  const rMax = size / 2;
+  const a = rMax / Math.exp(b * maxTheta);
+  const steps = 60;
 
   ctx.beginPath();
-  for (let i = 0; i < finalConfig.iterations; i++) {
-    const radius = scale * current;
-    const centerX = radius / 2;
-    const centerY = radius / 2;
-
-    ctx.arc(centerX, centerY, radius, Math.PI, Math.PI * 1.5);
-
-    // Calculate next Fibonacci number
-    const next = current + previous;
-    previous = current;
-    current = next;
-
-    // Transform for next iteration
-    ctx.translate(radius, 0);
-    ctx.rotate(Math.PI / 2);
+  for (let i = 0; i <= steps; i++) {
+    const theta = (i / steps) * maxTheta;
+    const r = a * Math.exp(b * theta);
+    const px = Math.cos(theta) * r;
+    const py = Math.sin(theta) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
   }
 
   ctx.stroke();
@@ -125,7 +121,8 @@ export const drawIslamicPattern: DrawFunction = (ctx, size, config = {}) => {
   const radius = unit / 2;
 
   // Pre-compute the 8 star-point angle pairs (cos/sin) — avoids 648 trig calls
-  const starPoints: Array<{ c1: number; s1: number; c2: number; s2: number }> = [];
+  const starPoints: Array<{ c1: number; s1: number; c2: number; s2: number }> =
+    [];
   for (let k = 0; k < 8; k++) {
     const angle = (Math.PI / 4) * k;
     const angle2 = angle + Math.PI / 4;
@@ -225,9 +222,6 @@ export const drawMerkaba: DrawFunction = (ctx, size, config = {}) => {
     });
   });
 
-  if (finalConfig.fillStyle !== "transparent") {
-    ctx.fill();
-  }
   ctx.stroke();
   restoreContext(ctx);
 };
@@ -236,8 +230,11 @@ export const drawMandala: DrawFunction = (ctx, size, config = {}) => {
   const finalConfig = { ...defaultShapeConfig, ...config };
   applyTransforms(ctx, size, finalConfig);
 
-  const numCircles = 8;
-  const numPoints = 16;
+  // Fewer rings, spokes confined to the outer band — the previous
+  // 8-ring × 16-full-spoke version read as a cobweb and, appearing in
+  // most palettes, branded every image with the same dense motif.
+  const numCircles = 5;
+  const numPoints = 12;
   const radius = size / 2;
 
   ctx.beginPath();
@@ -245,14 +242,13 @@ export const drawMandala: DrawFunction = (ctx, size, config = {}) => {
     const circleRadius = (radius / numCircles) * i;
     ctx.moveTo(circleRadius, 0);
     ctx.arc(0, 0, circleRadius, 0, Math.PI * 2);
-
-    for (let j = 0; j < numPoints; j++) {
-      const angle = (Math.PI * 2 * j) / numPoints;
-      const x = circleRadius * Math.cos(angle);
-      const y = circleRadius * Math.sin(angle);
-      ctx.moveTo(0, 0);
-      ctx.lineTo(x, y);
-    }
+  }
+  // Spokes span only from the second ring outward
+  const innerR = (radius / numCircles) * 2;
+  for (let j = 0; j < numPoints; j++) {
+    const angle = (Math.PI * 2 * j) / numPoints;
+    ctx.moveTo(innerR * Math.cos(angle), innerR * Math.sin(angle));
+    ctx.lineTo(radius * Math.cos(angle), radius * Math.sin(angle));
   }
 
   ctx.stroke();
