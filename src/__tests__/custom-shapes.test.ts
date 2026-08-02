@@ -33,12 +33,14 @@ describe("Custom shapes", () => {
 
   it("should pass deterministic RNG to custom draw function", () => {
     const rngValues: number[] = [];
-    const makeDraw = (collector: number[]): CustomDrawFunction => (ctx, size, rng) => {
-      collector.push(rng());
-      ctx.beginPath();
-      ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
-      ctx.closePath();
-    };
+    const makeDraw =
+      (collector: number[]): CustomDrawFunction =>
+      (ctx, size, rng) => {
+        collector.push(rng());
+        ctx.beginPath();
+        ctx.arc(0, 0, size / 2, 0, Math.PI * 2);
+        ctx.closePath();
+      };
 
     render.renderHashArt(ctx, "deadbeefdeadbeef", {
       width: 256,
@@ -54,7 +56,9 @@ describe("Custom shapes", () => {
     if (rngValues.length > 0) {
       const rngValues2: number[] = [];
       const canvas2 = createCanvas(256, 256);
-      const ctx2 = canvas2.getContext("2d") as unknown as CanvasRenderingContext2D;
+      const ctx2 = canvas2.getContext(
+        "2d",
+      ) as unknown as CanvasRenderingContext2D;
 
       render.renderHashArt(ctx2, "deadbeefdeadbeef", {
         width: 256,
@@ -62,7 +66,11 @@ describe("Custom shapes", () => {
         customShapes: {
           onlyShape: {
             draw: makeDraw(rngValues2),
-            profile: { tier: 1, heroCandidate: true, affinities: ["onlyShape"] },
+            profile: {
+              tier: 1,
+              heroCandidate: true,
+              affinities: ["onlyShape"],
+            },
           },
         },
       });
@@ -158,7 +166,7 @@ describe("Custom shapes", () => {
 
     const cross: CustomDrawFunction = (ctx, size, rng) => {
       const arm = size * 0.15;
-      const half = size / 2 * (0.8 + rng() * 0.2);
+      const half = (size / 2) * (0.8 + rng() * 0.2);
       ctx.beginPath();
       ctx.rect(-arm, -half, arm * 2, size);
       ctx.rect(-half, -arm, size, arm * 2);

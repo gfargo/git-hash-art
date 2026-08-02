@@ -48,8 +48,10 @@ async function generateImageBlob(
   gitHash: string,
   config: Partial<GenerationConfig> = {},
 ): Promise<Blob> {
-  const finalConfig: GenerationConfig = { ...DEFAULT_CONFIG, ...config };
-  const { width, height } = finalConfig;
+  // See the note in index.ts: forwarding resolved defaults would suppress
+  // the archetype's own grid, layer, size and opacity settings.
+  const width = config.width ?? DEFAULT_CONFIG.width;
+  const height = config.height ?? DEFAULT_CONFIG.height;
 
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
@@ -57,11 +59,11 @@ async function generateImageBlob(
     throw new Error("Failed to get 2D rendering context from OffscreenCanvas");
   }
 
-  renderHashArt(
-    ctx as unknown as CanvasRenderingContext2D,
-    gitHash,
-    finalConfig,
-  );
+  renderHashArt(ctx as unknown as CanvasRenderingContext2D, gitHash, {
+    ...config,
+    width,
+    height,
+  });
 
   return canvas.convertToBlob({ type: "image/png" });
 }
@@ -77,8 +79,9 @@ function generateDataURL(
   gitHash: string,
   config: Partial<GenerationConfig> = {},
 ): string {
-  const finalConfig: GenerationConfig = { ...DEFAULT_CONFIG, ...config };
-  const { width, height } = finalConfig;
+  // See the note in index.ts.
+  const width = config.width ?? DEFAULT_CONFIG.width;
+  const height = config.height ?? DEFAULT_CONFIG.height;
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -89,12 +92,16 @@ function generateDataURL(
     throw new Error("Failed to get 2D rendering context");
   }
 
-  renderHashArt(ctx, gitHash, finalConfig);
+  renderHashArt(ctx, gitHash, { ...config, width, height });
 
   return canvas.toDataURL("image/png");
 }
 
 export { renderToCanvas, generateImageBlob, generateDataURL, renderHashArt };
 export { PRESETS } from "./lib/constants";
-export type { GenerationConfig, CustomShapeDefinition, CustomDrawFunction } from "./types";
+export type {
+  GenerationConfig,
+  CustomShapeDefinition,
+  CustomDrawFunction,
+} from "./types";
 export { DEFAULT_CONFIG } from "./types";

@@ -37,6 +37,7 @@ Hash String
        3.  Focal Points (rule-of-thirds biased) + Void Zones (archetype-aware density)
        3a. Composition Anchor (~70% off-center: radial modes orbit a thirds point, shapes bleed past the frame)
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
+       1d. Attractor Substrate (~⅓ of images: hash-seeded strange attractor density field)
        4.  Flow Field Initialization (simplex noise FBM)
        4a. Noise Size Modulation (terrain-like size variation from noise field)
        4b. Hero Shape (palette-aware, affinity-styled)
@@ -81,6 +82,47 @@ Hash String
        11b. Generative Borders (archetype-driven decorative frames)
        12. Signature Mark (density-aware placement, deterministic geometric chop mark)
 ```
+
+## 0. Evaluating Changes
+
+The test suite checks determinism and validity — that a render happens, and
+happens the same way twice. It says nothing about whether the images are any
+good, which is the property that actually regresses, and the failure mode is
+usually *uniformity* rather than error: output stays deterministic, nothing
+throws, the pictures are just worse.
+
+`yarn evaluate` renders a fixed 128-hash corpus across square, landscape,
+portrait and banner formats, computes metrics designed to catch specific
+failures, writes contact sheets, and diffs against the committed baseline in
+`evaluation-baseline.json`.
+
+The corpus hashes derive from a constant seed, so the same images are
+evaluated on every machine and in every session. Comparisons are meaningless
+otherwise.
+
+| Metric | Failure it detects |
+| ------ | ------------------ |
+| `valueRange` | flat, no tonal separation |
+| `coverage` | nothing painted |
+| `edgeDensity` | no structure — a canvas of two huge gradient fills scores well on range and coverage but has nothing to look at |
+| `meanChroma` | colourless |
+| `clippedHighlights` | pale archetypes losing detail into white |
+| `crushedShadows` | dark archetypes collapsing into black |
+| `edgeEngagement` | composition floating in dead margin instead of meeting the frame |
+| `massOffset` | the centred-blob silhouette |
+| `hueSpread` | single-hue wash (note: legitimately penalises deliberate two-colour work) |
+
+Scene decisions — archetype, palette mode, background style, composition
+mode, symmetry, whether an attractor fired — are reported through the
+`_debugInfo` out-param, so diversity is measured from what the renderer chose
+rather than guessed from pixels.
+
+**These metrics triage; they do not judge.** They exist to find likely
+failures quickly, not to define quality. The gate is looking at the sheets —
+flagged tiles get a red border so the eye goes to them first.
+
+Run `yarn evaluate:baseline` to record the current state after a change is
+accepted.
 
 ## 1. Deterministic RNG
 
@@ -205,16 +247,52 @@ After generating the raw palette, colors are organized into a **hierarchy** with
 
 `pickHierarchyColor(hierarchy, rng)` rolls against these weights so compositions naturally converge on a dominant tone without being monotonous.
 
+**Guaranteed hue separation.** Palette modes that deliberately live on one hue
+(`monochrome`, `earth`) keep it. For every other mode, if the palette's widest
+hue gap is under 40° the accent is replaced with a split-complementary of the
+dominant (150–210° away, saturation +0.18). `harmonious` draws on
+color-scheme's `mono` and `analogic` types for ~2/5 of hashes, which otherwise
+collapses all three hierarchy roles onto the same hue.
+
+### Color Zoning
+
+Hierarchy weighting alone cannot stop an image reading as a single flat hue:
+60% of picks go to the dominant, and the large shapes that carry an image's
+perceived color are the ones most likely to sit near the composition anchor,
+where placement is dominant-led. Scattered accents do not change that.
+
+So a low-frequency field — a directional split with a noise-warped boundary —
+divides the canvas into two passages, and in the second passage the lead color
+takes over the dominant role. Large masses on opposite sides of the image then
+carry genuinely different hues (the warm/cool division painters use) while all
+the existing hierarchy logic still applies. Active on ~68% of images, skipped
+for `monochrome` and `high-contrast` palettes where it is meaningless.
+
+The passage lead is `secondary` when it differs from dominant by more than 35°
+of hue, otherwise `accent` — a "second" color 10° away buys nothing.
+
+### Accent Quota
+
+The accent wins only ~15% of hierarchy picks, and each of those then passes
+through atmospheric desaturation, scale desaturation and depth fade — by the
+time it reaches the canvas it is indistinguishable from the dominant. A
+protected minority (~10% of shapes below 0.32 size-normal) bypasses all the
+muting passes and takes a +0.2 chroma lift instead. This is the ~10% accent
+rule from painting: accents must be small *and* undiluted.
+
 ### HSL Jitter
 
 Color variation uses **HSL-space jitter** (`jitterColorHSL`) instead of the old RGB approach. This produces perceptually uniform shifts — a ±10° hue rotation and ±8% saturation/lightness shift feels natural, whereas the equivalent RGB jitter could accidentally desaturate or muddy colors.
 
 ### Positional Color
 
-Shapes receive color based on their position relative to the canvas center:
-- **Center (< 35% radius):** biased toward the dominant color
+Shapes receive color based on their position relative to the composition anchor:
+- **Center (< 35% radius):** dominant-led, with a 12% chance of an accent mark so the focal mass has something to play against
 - **Middle (35–70%):** weighted random from the full hierarchy
 - **Edges (> 70%):** biased toward secondary and accent colors
+
+Within the secondary color zone (see **Color Zoning**) the same rules apply to
+a hierarchy whose dominant and secondary roles have been swapped.
 
 This creates a natural color gradient across the composition without explicit gradient code.
 
@@ -224,7 +302,23 @@ The scheme detects whether the background leans warm or cool, then shifts foregr
 
 ### Contrast Enforcement
 
-Every shape color is checked against the background luminance. If the contrast ratio is too low, the color is lightened or darkened to ensure visibility.
+Every shape color is checked against the background luminance and pushed away
+from it if the gap is too small. Three properties make this actually work:
+
+- **Adaptive floor.** A near-white ground hides a mark that the same luminance
+  gap would make legible on a mid ground, so the requirement scales up above
+  bgLum 0.7 (`contrastFloorFor`). A flat floor let pastel archetypes "pass"
+  while still being invisible.
+- **Alpha compensation.** A mark's *perceived* contrast is its color contrast
+  scaled by the alpha it is painted at — a 30%-alpha wash delivers under a
+  third of what its color promises. The requirement is divided by the fill
+  alpha (capped at 2.2×, and the result capped at 0.5) so translucent washes on
+  light grounds still register.
+- **Solved, not nudged.** Lightness and luminance are on different scales, so a
+  single damped step in lightness routinely undershot the luminance target.
+  The correction bisects over lightness (7 iterations, bounds 0.12–0.93 so
+  results stay tinted rather than pure black or white) using a direct
+  HSL→luminance path that avoids allocating a hex string per probe.
 
 ### Color Palette Evolution
 
@@ -242,15 +336,67 @@ Not all shapes look equally good at all sizes or in all combinations. The affini
 
 ### Shape Inventory
 
-The system includes 40+ shapes across 4 categories:
+The system includes 44 shapes across 5 categories. Shapes marked ~~struck~~
+are present in the registry but weighted to 0, so they never enter a palette —
+see **Selection Weight** below.
 
 | Category | Shapes |
 | -------- | ------ |
-| Basic (9) | circle, square, triangle, hexagon, star, jacked-star, heart, diamond, cube |
-| Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, fractal |
-| Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, torus, eggOfLife |
-| Procedural (18) | blob, ngon, lissajous, superellipse, spirograph, waveRing, rose, shardField, voronoiCell, crescent, tendril, cloudForm, inkSplat, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, crosshatchPatch |
+| Basic (9) | circle, square, triangle, hexagon, star, ~~jacked-star~~, ~~heart~~, diamond, cube |
+| Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, ~~fractal~~ |
+| Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, ~~torus~~, eggOfLife |
+| Procedural (18) | blob, ngon, lissajous, superellipse, ~~spirograph~~, ~~waveRing~~, ~~rose~~, shardField, voronoiCell, crescent, tendril, cloudForm, ~~inkSplat~~, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, ~~crosshatchPatch~~ |
 | Organic (2) | noiseForm, contourField — **no fixed silhouette**: each draw contours a hash-seeded simplex noise field via marching squares, producing genuinely novel island/cell outlines (with occasional satellite islets); contourField adds nested topographic rings |
+
+### The Sharp-Shape Guarantee
+
+Weights can only redistribute *within* a palette. The affinity graph decides
+what is a candidate at all, and it clusters by roundness — `circle`'s
+affinities are `blob`, `hexagon`, `flowerOfLife`, `seedOfLife`, every one of
+them round. A round seed therefore yields a primary set with no straight edge
+or sharp corner anywhere, and no amount of weighting fixes it.
+
+`buildShapePalette` now guarantees at least one sharp-cornered form in every
+primary set. With the icon damping this holds round-family share roughly flat
+(48% → 52%) while icon share falls 27% → 18%; without it, the damping alone
+pushed round share to 59%.
+
+### Selection Weight
+
+Alongside `tier`, each profile carries an optional `weight` (default 1) that
+scales how often the shape is chosen. `tier` describes *where* a shape works —
+at what size, in what context. `weight` describes *how often it should turn up
+at all*, which is a separate question and needed its own dial.
+
+Weight 0 removes a shape from palette construction entirely — filtered once in
+`buildShapePalette`, which covers primary, supporting, accent, affinity
+spill-in and the hero pool in a single place. The draw function stays in the
+registry and remains reachable through the custom-shapes API.
+
+Weights fall into three groups:
+
+- **0 — clip art.** Pictures of things (a heart, a little tree) and cartoon
+  marks (a sparkle, a comic starburst). Ten shapes.
+- **Damped icons.** Mandalas, sacred geometry and wireframe solids aren't clip
+  art, but they have a strong recognisable silhouette and crisp internal
+  detail, so they read as stamps pasted onto a scene rather than marks
+  belonging to it. Twelve shapes damped to 0.4–0.7.
+- **Boosted texturals.** `shardField`, `voronoiCell`, `tendril` and
+  `lissajous` were each under 0.4% of draws despite having no recognisable
+  silhouette to tire of. Raised to absorb the freed share.
+
+That last group exists because of a measured side effect: damping the icons
+alone pushed all the freed weight onto `circle` and `hexagon`, taking
+round-family share from 48% to 59%. Trading a clip-art feel for a
+soap-bubble one is not a win.
+
+The translucent pipeline camouflages a lot: shapes overlap into a haze, so a
+weak silhouette is rarely read on its own. It still tells in aggregate — a
+vocabulary containing a heart, a little tree, cartoon sparkles and a starburst
+makes the whole corpus feel like clip art rather than something computed. Ten
+shapes are set to 0 on those grounds, and six more are damped for being weak or
+redundant (three near-identical circle-clusters were one look occupying three
+slots). Every weight in `SHAPE_PROFILES` carries an inline reason.
 
 ### Quality Tiers
 
@@ -304,12 +450,32 @@ The archetype's `backgroundStyle` selects one of 7 modes:
 | Style | Description |
 | ----- | ----------- |
 | radial-dark | Dark radial gradient from center outward (default) |
-| radial-light | Light center (#f0ece4) fading to the palette background |
+| radial-light | Light radial gradient, palette-tinted paper |
 | linear-horizontal | Left-to-right gradient |
 | linear-diagonal | Corner-to-corner gradient with midpoint return |
 | solid-dark | Flat dark fill |
-| solid-light | Flat off-white (#f5f2eb) |
+| solid-light | Flat palette-tinted light fill |
 | multi-stop | 3–4 color gradient using palette colors |
+
+### The Background Value Contract
+
+A background **style** declares the value band it paints in; the palette
+**mode** only supplies the hue. `resolveBackgroundColors` reconciles the two
+before anything is drawn, so the stored background luminance always describes
+the pixels actually on canvas:
+
+- **Light styles** (`radial-light`, `solid-light`) map the palette's background
+  hue to L≈0.87–0.94 at very low saturation — tinted paper that varies per hash
+  rather than one hardcoded off-white.
+- **Dark styles** (`radial-dark`, `solid-dark`) force L≈0.05–0.09 when the
+  palette hands back light colors, so an archetype that asks for a dark ground
+  keeps the personality it exists to express.
+- **Gradient styles** pass through unchanged.
+
+This contract matters because roughly a dozen downstream decisions branch on
+background luminance — contrast enforcement, blend-mode pools, layer opacity
+lift, vignette polarity, and the torn-paper deckle color among them. When the
+declared and painted values disagree, all of them invert at once.
 
 ### Gradient Mesh Overlay
 
@@ -334,6 +500,74 @@ The pattern spacing scales with canvas size (1.5–3% of the shorter dimension).
 ### Background Luminance
 
 The average luminance of the two background colors is computed and stored. This value drives contrast enforcement for all foreground shapes — ensuring they remain visible regardless of background brightness.
+
+## 5b. Attractor Substrate
+
+Every other mark in this library is a **stamp**: a shape from a fixed
+vocabulary, placed where the composition system chose. That caps how complex
+an image can get, because complexity has to be assembled out of parts somebody
+drew — and it is why a weak silhouette in the vocabulary shows up as a weak
+image.
+
+An attractor produces form the opposite way. Iterating a two-line map a
+quarter of a million times and accumulating where the orbit lands yields
+filigree nobody authored: no silhouette to read as anything, structure far
+finer than the shape layer can build, and a whole family of forms out of four
+numbers.
+
+Around a third of images get one. It is a **substrate**, not a subject —
+enough that the composition inherits a structure it did not author, not so
+much that the result becomes generic attractor art.
+
+### Maps and rejection
+
+Three maps (de Jong, Clifford, Svensson), parameters drawn from the hash in
+[-3, 3]. Most parameter draws are unusable — they diverge, collapse to a
+point, or degenerate to a hairline — so a probe pass of 12k iterations
+establishes the orbit's extent and the plotted field is then rejected unless
+it covers ≥3% of the grid and spreads its density rather than piling into a
+few cells. A little under half of attempts are rejected; the caller falls
+back to no substrate rather than retrying, so the RNG stream stays
+predictable.
+
+### Cropping
+
+The orbit is deliberately **zoomed past the frame** (1.0–1.9×) and drifted
+off-centre. Plotted to fit, an attractor is always a symmetrical object
+floating in the middle of the canvas — exactly the centred-blob silhouette
+the composition system spends its effort avoiding.
+
+### Rendering
+
+Density is accumulated into a fixed 288² grid — fixed rather than tied to
+canvas size, so cost and appearance stay stable from a 512px thumbnail to a
+2048px print — then normalised **logarithmically**, because linear
+normalisation crushes everything except the densest spines and loses the thin
+outer veils that carry most of the detail.
+
+It is painted as eight density bands, each emitted as a single batched path.
+This avoids `putImageData` and any off-screen canvas, so the renderer still
+touches nothing but the standard 2D context and still respects `globalAlpha`
+and the layer blend mode. An earlier four-band version made the quantisation
+visible: the sparse tail rendered as discrete specks and read as dirt on the
+lens rather than as filigree. Eight bands with a superlinear alpha ramp, and
+a cut through the sparsest cells, fixed it.
+
+### Integration
+
+Two things make this a hybrid rather than two pictures stacked:
+
+- **Placement affinity.** Shapes are rejected with 55% probability where field
+  density is under 0.1, so the shape layer settles along the orbit's spines
+  instead of ignoring it. Kept partial, so the composition still breathes into
+  the empty regions rather than tracing the orbit exactly.
+- **Re-assertion.** A second, much fainter pass of only the densest bands is
+  drawn *over* the shape layers in `multiply` (light grounds) or `screen`
+  (dark), lacing the structure back through. Underlaying alone leaves the
+  field as wallpaper that the shape layers simply cover.
+
+Shape count drops to 60% when a substrate is present: the image already
+carries structure, and at full density the stamps just bury it.
 
 ## 6. Composition & Symmetry
 
@@ -407,7 +641,7 @@ Structures are drawn before the shape layers so they weave through the mid-groun
 When the archetype enables `heroShape` and the RNG roll passes (60% chance), a dominant focal element is drawn at the first focal point:
 
 - Shape is selected from palette hero candidates (Tier 1, `heroCandidate: true`)
-- Size is 80–130% of `adjustedMaxSize`
+- Size is 80–130% of `adjustedMaxSize`, clamped to 72% of the short edge — the hero is meant to dominate, not to cover the frame
 - Style is chosen from the shape's `bestStyles` via its affinity profile
 - Fill uses the dominant hierarchy color; stroke uses the accent
 - Glow radius is 12–32px (scaled)
@@ -444,14 +678,14 @@ For each shape in a layer:
 1. **Position:** Composition mode generates a candidate position, then `applyFocalBias` pulls it toward the nearest focal point
 2. **Void check:** 85% skip chance if inside a void zone
 3. **Density check:** Uses the **spatial hash grid** (see Performance section) for O(1) lookups — if local density exceeds 15% of `shapesPerLayer`, 60% skip chance
-4. **Size:** Power-curve distribution controlled by `archetype.sizePower` — higher values produce more small shapes
+4. **Size:** Power-curve distribution controlled by `archetype.sizePower` — higher values produce more small shapes. Capped at 62% of the short edge: past that a shape stops reading as an element in a composition and becomes the ground (and under symmetry mirroring, two of them tile over the whole canvas). Archetypes whose `minShapeSize` exceeds 12% of the canvas — `bold-graphic`, `minimal-spacious`, `watercolor-wash` — cannot otherwise produce a small mark at all, so 25% of their shapes drop below the archetype floor to restore a large/medium/small reading
 5. **Shape selection:** `pickShapeFromPalette` with size-constraint filtering
 6. **Rotation:** Flow-field angle in flow-field mode (±15° jitter); random otherwise
 7. **Hero avoidance:** Shapes within 1.5× the hero's size orient toward it (rotation blended 40% toward the angle-to-hero)
-8. **Color:** Positional color from hierarchy (zoned around the composition anchor) + HSL jitter, with atmospheric desaturation and temperature contrast applied
+8. **Color:** Positional color from the *zone* hierarchy (see Color Zoning) + HSL jitter, with atmospheric desaturation and temperature contrast applied. ~10% of small shapes are **accent marks** that skip every muting pass and take a chroma lift instead
 8b. **Value hierarchy by scale:** Large shapes (> 55% of max size) are desaturated and get lower fill alpha — quiet masses; small shapes (< 22%) get a saturation boost and denser fill — vivid accents. Very dark fills on light backgrounds are alpha-thinned so ink accents punctuate without reading as glitches
 8c. **Tone-on-tone strokes:** ~70% of strokes are a lightness-shifted version of the fill (darker on light backgrounds, lighter on dark) so outlines read as part of the shape; the remaining 30% pull an independent hierarchy color for deliberate contrast
-9. **Contrast enforcement:** Fill and stroke colors checked against background luminance. Enforcement moves colors toward *tinted* darks/lights (lightness floor 0.24 / ceiling 0.86) — never pure black or white
+9. **Contrast enforcement:** Fill and stroke colors checked against background luminance, with the requirement scaled up for extreme grounds and divided by the shape's fill alpha (see Contrast Enforcement). Enforcement moves colors toward *tinted* darks/lights (lightness bounds 0.12–0.93) — never pure black or white
 10. **Styling:** Affinity-aware render style, optional glow (sacred shapes 45% base chance × archetype multiplier), optional radial gradient fill (30% chance)
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
 12. **Shadow & highlight:** Each shape receives a directional drop shadow and specular highlight based on the consistent light angle (see below)

@@ -1,0 +1,97 @@
+{
+  "summary": {
+    "metrics": {
+      "valueRange": 0.5239,
+      "meanChroma": 0.1047,
+      "coverage": 0.5143,
+      "edgeDensity": 0.2036,
+      "edgeEngagement": 0.3727,
+      "hueSpread": 0.1215,
+      "clippedHighlights": 0,
+      "crushedShadows": 0,
+      "massOffset": 0.0776
+    },
+    "failures": {
+      "flat": 0.078125,
+      "empty": 0.1640625,
+      "bare": 0.0078125,
+      "blownOut": 0,
+      "crushed": 0,
+      "drab": 0.1328125,
+      "any": 0.3046875
+    },
+    "scene": {
+      "archetype": {
+        "collage": 5,
+        "geometric-precision": 11,
+        "classic": 6,
+        "botanical": 6,
+        "collage+cosmic": 1,
+        "collage+celestial": 1,
+        "stipple-portrait": 5,
+        "monochrome-ink": 15,
+        "shattered-glass": 10,
+        "shattered-glass+stipple-portrait": 1,
+        "watercolor-wash": 7,
+        "organic-flow": 6,
+        "ethereal": 7,
+        "dense-chaotic": 5,
+        "op-art": 4,
+        "neon-glow": 1,
+        "bold-graphic": 8,
+        "celestial": 6,
+        "watercolor-wash+monochrome-ink": 1,
+        "cosmic": 5,
+        "neon-glow+dense-chaotic": 1,
+        "organic-flow+shattered-glass": 1,
+        "minimal-spacious": 5,
+        "cosmic+watercolor-wash": 1,
+        "op-art+bold-graphic": 1,
+        "neon-glow+monochrome-ink": 1,
+        "botanical+neon-glow": 1,
+        "shattered-glass+dense-chaotic": 1,
+        "ethereal+watercolor-wash": 1,
+        "op-art+collage": 1,
+        "cosmic+bold-graphic": 1,
+        "organic-flow+ethereal": 1,
+        "bold-graphic+dense-chaotic": 1
+      },
+      "paletteMode": {
+        "duotone": 21,
+        "high-contrast": 29,
+        "harmonious": 19,
+        "earth": 15,
+        "monochrome": 20,
+        "pastel-light": 8,
+        "neon": 16
+      },
+      "backgroundStyle": {
+        "solid-light": 38,
+        "solid-dark": 26,
+        "radial-dark": 32,
+        "radial-light": 23,
+        "linear-diagonal": 9
+      },
+      "compositionMode": {
+        "grid-subdivision": 31,
+        "spiral": 19,
+        "golden-spiral": 20,
+        "clustered": 20,
+        "radial": 25,
+        "flow-field": 13
+      },
+      "symmetry": {
+        "none": 111,
+        "quad": 3,
+        "bilateral-y": 6,
+        "bilateral-x": 8
+      },
+      "attractorShare": 0.3359375
+    },
+    "timing": {
+      "meanMs": 63.4,
+      "medianMs": 28.9,
+      "p95Ms": 280.1
+    }
+  }
+}

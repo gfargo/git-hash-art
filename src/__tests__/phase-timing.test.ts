@@ -31,7 +31,9 @@ describe("Phase cost breakdown", () => {
     console.log("\n  ═══ Noise texture (phase 7) cost ═══");
     for (const size of sizes) {
       const canvas = createCanvas(size, size);
-      const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+      const ctx = canvas.getContext(
+        "2d",
+      ) as unknown as CanvasRenderingContext2D;
       // Fill with something so getImageData has data
       ctx.fillStyle = "#333";
       ctx.fillRect(0, 0, size, size);
@@ -63,7 +65,9 @@ describe("Phase cost breakdown", () => {
       ctx.putImageData(imageData, 0, 0);
       const putTime = performance.now() - putStart;
 
-      console.log(`  ${size}×${size}: getImageData=${fmt(getTime)}, loop(${noiseDensity} dots)=${fmt(loopTime)}, putImageData=${fmt(putTime)}, total=${fmt(getTime + loopTime + putTime)}`);
+      console.log(
+        `  ${size}×${size}: getImageData=${fmt(getTime)}, loop(${noiseDensity} dots)=${fmt(loopTime)}, putImageData=${fmt(putTime)}, total=${fmt(getTime + loopTime + putTime)}`,
+      );
     }
     expect(true).toBe(true);
   });
@@ -89,7 +93,7 @@ describe("Phase cost breakdown", () => {
         const ny = py + (Math.random() - 0.5) * 10;
         ctx.globalAlpha = 0.1 * (1 - s / stepsPerLine);
         ctx.strokeStyle = `rgba(100,150,200,0.3)`;
-        ctx.lineWidth = 2 * (1 - s / stepsPerLine * 0.8);
+        ctx.lineWidth = 2 * (1 - (s / stepsPerLine) * 0.8);
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(nx, ny);
@@ -114,7 +118,10 @@ describe("Phase cost breakdown", () => {
         const nx = px + (Math.random() - 0.5) * 10;
         const ny = py + (Math.random() - 0.5) * 10;
         const t = s / stepsPerLine;
-        const bucketIdx = Math.min(ALPHA_BUCKETS - 1, Math.floor(t * ALPHA_BUCKETS));
+        const bucketIdx = Math.min(
+          ALPHA_BUCKETS - 1,
+          Math.floor(t * ALPHA_BUCKETS),
+        );
         buckets[bucketIdx].push([px, py, nx, ny]);
         px = nx;
         py = ny;
@@ -134,7 +141,9 @@ describe("Phase cost breakdown", () => {
     }
     const batchedTime = performance.now() - start2;
 
-    console.log(`  Per-segment (${totalSegments} segments): ${fmt(perSegTime)}`);
+    console.log(
+      `  Per-segment (${totalSegments} segments): ${fmt(perSegTime)}`,
+    );
     console.log(`  Batched (${ALPHA_BUCKETS} buckets): ${fmt(batchedTime)}`);
     console.log(`  Speedup: ${(perSegTime / batchedTime).toFixed(1)}×`);
     expect(true).toBe(true);
@@ -180,7 +189,9 @@ describe("Phase cost breakdown", () => {
     ctx.stroke();
     const batchedTime = performance.now() - start2;
 
-    console.log(`  Per-segment (${energyCount * burstsPerSource} lines): ${fmt(perSegTime)}`);
+    console.log(
+      `  Per-segment (${energyCount * burstsPerSource} lines): ${fmt(perSegTime)}`,
+    );
     console.log(`  Batched (single path): ${fmt(batchedTime)}`);
     console.log(`  Speedup: ${(perSegTime / batchedTime).toFixed(1)}×`);
     expect(true).toBe(true);
@@ -202,8 +213,10 @@ describe("Phase cost breakdown", () => {
       ctx.beginPath();
       ctx.moveTo(Math.random() * size, Math.random() * size);
       ctx.quadraticCurveTo(
-        Math.random() * size, Math.random() * size,
-        Math.random() * size, Math.random() * size,
+        Math.random() * size,
+        Math.random() * size,
+        Math.random() * size,
+        Math.random() * size,
       );
       ctx.stroke();
     }
@@ -221,7 +234,10 @@ describe("Phase cost breakdown", () => {
 
     const start = performance.now();
     for (let i = 0; i < iterations; i++) {
-      colors.hexWithAlpha(colors_list[i % colors_list.length], alphas[i % alphas.length]);
+      colors.hexWithAlpha(
+        colors_list[i % colors_list.length],
+        alphas[i % alphas.length],
+      );
     }
     const uncachedTime = performance.now() - start;
 
@@ -239,8 +255,12 @@ describe("Phase cost breakdown", () => {
     }
     const cachedTime = performance.now() - start2;
 
-    console.log(`  Uncached: ${fmt(uncachedTime)} (${(uncachedTime / iterations * 1000).toFixed(2)}µs/call)`);
-    console.log(`  Cached:   ${fmt(cachedTime)} (${(cachedTime / iterations * 1000).toFixed(2)}µs/call)`);
+    console.log(
+      `  Uncached: ${fmt(uncachedTime)} (${((uncachedTime / iterations) * 1000).toFixed(2)}µs/call)`,
+    );
+    console.log(
+      `  Cached:   ${fmt(cachedTime)} (${((cachedTime / iterations) * 1000).toFixed(2)}µs/call)`,
+    );
     console.log(`  Speedup:  ${(uncachedTime / cachedTime).toFixed(1)}×`);
     expect(true).toBe(true);
   });
@@ -249,7 +269,9 @@ describe("Phase cost breakdown", () => {
     console.log("\n  ═══ Full pipeline timing (1024×1024) ═══");
     for (const { label, hash } of HASHES) {
       const canvas = createCanvas(1024, 1024);
-      const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
+      const ctx = canvas.getContext(
+        "2d",
+      ) as unknown as CanvasRenderingContext2D;
       const start = performance.now();
       renderHashArt(ctx, hash, { width: 1024, height: 1024 });
       const ms = performance.now() - start;

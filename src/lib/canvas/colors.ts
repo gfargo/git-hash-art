@@ -272,7 +272,10 @@ export class SacredColorScheme {
           hslToHex((this.seed + 30) % 360, 0.1, 0.88),
         ];
       case "high-contrast":
-      case "monochrome-ink":
+      // Was "monochrome-ink" — an archetype name, not a palette mode, so
+      // this branch never matched and the monochrome palettes fell through
+      // to the darkened default.
+      case "monochrome":
         return ["#f5f5f0", "#e8e8e0"];
       case "split-complementary":
       case "analogous-accent":
@@ -387,8 +390,8 @@ function hexToHsl(hex: string): [number, number, number] {
   return [h * 360, s, l];
 }
 
-/** Convert HSL [h 0-360, s 0-1, l 0-1] back to hex. */
-function hslToHex(h: number, s: number, l: number): string {
+/** Convert HSL [h 0-360, s 0-1, l 0-1] to RGB channels in 0-1. */
+function hslToRgb01(h: number, s: number, l: number): [number, number, number] {
   h = ((h % 360) + 360) % 360;
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
@@ -415,7 +418,33 @@ function hslToHex(h: number, s: number, l: number): string {
     r = c;
     b = x;
   }
-  return rgbToHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
+  return [r + m, g + m, b + m];
+}
+
+/** Convert HSL [h 0-360, s 0-1, l 0-1] back to hex. */
+function hslToHex(h: number, s: number, l: number): string {
+  const [r, g, b] = hslToRgb01(h, s, l);
+  return rgbToHex(r * 255, g * 255, b * 255);
+}
+
+/**
+ * sRGB relative luminance straight from HSL.
+ *
+ * `enforceContrast` bisects over lightness, so it evaluates luminance
+ * several times per call on the hot path. Going through hslToHex →
+ * hexToRgb would allocate a string per probe and thrash the shared
+ * luminance/RGB caches with colors that are never drawn.
+ */
+function srgbChannel(v: number): number {
+  const s = v <= 0 ? 0 : v >= 1 ? 1 : v;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+function hslLuminance(h: number, s: number, l: number): number {
+  const [r, g, b] = hslToRgb01(h, s, l);
+  return (
+    0.2126 * srgbChannel(r) + 0.7152 * srgbChannel(g) + 0.0722 * srgbChannel(b)
+  );
 }
 
 /**
@@ -591,31 +620,49 @@ export function luminance(hex: string): number {
  * `bgLuminance` is 0-1 (pre-computed from the background color).
  * `minContrast` is the minimum luminance difference to enforce (default 0.15).
  */
+export function contrastFloorFor(bgLuminance: number): number {
+  // A near-white ground hides a mark that the same luminance gap would
+  // make legible on a mid ground, so the requirement scales with how
+  // light the ground is. Without this, pastel archetypes cleared the
+  // flat 0.15 floor while still being effectively invisible.
+  return bgLuminance > 0.7 ? 0.15 + (bgLuminance - 0.7) * 0.9 : 0.15;
+}
+
 export function enforceContrast(
   fgHex: string,
   bgLuminance: number,
-  minContrast = 0.15,
+  minContrast?: number,
 ): string {
-  const fgLum = luminance(fgHex);
-  const diff = Math.abs(fgLum - bgLuminance);
+  const required = minContrast ?? contrastFloorFor(bgLuminance);
 
-  if (diff >= minContrast) return fgHex;
+  const fgLum = luminance(fgHex);
+  if (Math.abs(fgLum - bgLuminance) >= required) return fgHex;
 
   const [h, s, l] = hexToHsl(fgHex);
+  const goDark = bgLuminance > 0.5;
+  const targetLum = goDark ? bgLuminance - required : bgLuminance + required;
+  const targetS = Math.min(goDark ? 0.85 : 0.9, s + 0.1);
 
-  if (bgLuminance > 0.5) {
-    // Light background — darken toward a tinted (never black) dark.
-    // The lightness floor keeps enforced colors reading as deep hues
-    // rather than harsh black fragments.
-    const targetL = Math.max(0.24, l - (minContrast - diff) * 1.1);
-    const targetS = Math.min(0.85, s + 0.1);
-    return hslToHex(h, targetS, targetL);
-  } else {
-    // Dark background — lighten, capped below pure white
-    const targetL = Math.min(0.86, l + (minContrast - diff) * 1.1);
-    const targetS = Math.min(0.9, s + 0.1);
-    return hslToHex(h, targetS, targetL);
+  // Lightness and luminance are on different scales, so the previous
+  // single damped step in lightness routinely undershot the luminance
+  // target and returned a colour that was still invisible. Luminance is
+  // monotonic in lightness for a fixed hue/saturation, so bisect for the
+  // lightness closest to the original that actually clears the gap.
+  // The bounds keep results tinted rather than pure black or white.
+  let lo = goDark ? 0.12 : l;
+  let hi = goDark ? l : 0.93;
+  for (let i = 0; i < 7; i++) {
+    const mid = (lo + hi) / 2;
+    const midLum = hslLuminance(h, targetS, mid);
+    if (goDark ? midLum > targetLum : midLum < targetLum) {
+      if (goDark) hi = mid;
+      else lo = mid;
+    } else {
+      if (goDark) lo = mid;
+      else hi = mid;
+    }
   }
+  return hslToHex(h, targetS, goDark ? lo : hi);
 }
 
 /**
@@ -669,11 +716,60 @@ export function pickColorGrade(rng: () => number): {
 }
 
 /**
+ * Linearly blend two hex colors in RGB. `t` 0 = a, 1 = b.
+ */
+export function mixColor(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(a);
+  const [r2, g2, b2] = hexToRgb(b);
+  return rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+}
+
+/**
  * Rotate the hue of a hex color by a given number of degrees.
  */
 export function hueRotate(hex: string, degrees: number): string {
   const [h, s, l] = hexToHsl(hex);
   return hslToHex((h + degrees + 360) % 360, s, l);
+}
+
+/**
+ * Re-map a color into an explicit lightness band while keeping its hue.
+ *
+ * Used to force background colors into the value range their background
+ * style actually paints. Palette modes choose the *hue* of the ground;
+ * the background style chooses its *value*. Without this the two
+ * disagree — e.g. a `solid-light` archetype whose palette hands back
+ * darkened colors — and every downstream contrast decision inverts.
+ */
+export function toGroundValue(
+  hex: string,
+  lightness: number,
+  maxSaturation: number,
+): string {
+  const [h, s] = hexToHsl(hex);
+  return hslToHex(h, Math.min(s, maxSaturation), lightness);
+}
+
+/**
+ * Largest circular gap between the hues in a palette, in degrees.
+ * ~0 means every color sits on one hue — the palette will read as a
+ * single wash no matter how it is used.
+ */
+export function paletteHueSpan(colors: string[]): number {
+  const hues = colors
+    .map((c) => hexToHsl(c))
+    // Near-gray colors have a meaningless hue — exclude them
+    .filter(([, s, l]) => s > 0.08 && l > 0.05 && l < 0.95)
+    .map(([h]) => h);
+  if (hues.length < 2) return 0;
+  let maxSep = 0;
+  for (let i = 0; i < hues.length; i++) {
+    for (let j = i + 1; j < hues.length; j++) {
+      const raw = Math.abs(hues[i] - hues[j]);
+      maxSep = Math.max(maxSep, Math.min(raw, 360 - raw));
+    }
+  }
+  return maxSep;
 }
 
 /**
