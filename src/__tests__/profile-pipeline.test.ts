@@ -40,12 +40,26 @@ function createInstrumentedCtx(width: number, height: number) {
   const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
 
   const stats: DrawCallStats = {
-    fill: 0, stroke: 0, fillRect: 0, arc: 0,
-    beginPath: 0, moveTo: 0, lineTo: 0, quadraticCurveTo: 0,
-    drawImage: 0, save: 0, restore: 0, clip: 0,
-    getImageData: 0, putImageData: 0,
-    createRadialGradient: 0, createLinearGradient: 0,
-    setTransform: 0, translate: 0, scale: 0, rotate: 0,
+    fill: 0,
+    stroke: 0,
+    fillRect: 0,
+    arc: 0,
+    beginPath: 0,
+    moveTo: 0,
+    lineTo: 0,
+    quadraticCurveTo: 0,
+    drawImage: 0,
+    save: 0,
+    restore: 0,
+    clip: 0,
+    getImageData: 0,
+    putImageData: 0,
+    createRadialGradient: 0,
+    createLinearGradient: 0,
+    setTransform: 0,
+    translate: 0,
+    scale: 0,
+    rotate: 0,
   };
 
   // Wrap each method to count calls
@@ -80,7 +94,9 @@ describe("Pipeline phase profiling", () => {
       renderHashArt(ctx, TEST_HASH, { width, height });
       const total = performance.now() - start;
 
-      console.log(`\n  ═══ Pipeline profile: ${label} (hash=${TEST_HASH.slice(0, 8)}) ═══`);
+      console.log(
+        `\n  ═══ Pipeline profile: ${label} (hash=${TEST_HASH.slice(0, 8)}) ═══`,
+      );
       console.log(`  Total: ${formatMs(total)}`);
       console.log(`\n  Draw call counts:`);
       console.log(`    fill():           ${stats.fill}`);
@@ -96,11 +112,18 @@ describe("Pipeline phase profiling", () => {
       console.log(`    drawImage():      ${stats.drawImage}`);
       console.log(`    getImageData():   ${stats.getImageData}`);
       console.log(`    putImageData():   ${stats.putImageData}`);
-      console.log(`    gradients:        ${stats.createRadialGradient + stats.createLinearGradient}`);
-      console.log(`    transforms:       ${stats.translate + stats.scale + stats.rotate}`);
+      console.log(
+        `    gradients:        ${stats.createRadialGradient + stats.createLinearGradient}`,
+      );
+      console.log(
+        `    transforms:       ${stats.translate + stats.scale + stats.rotate}`,
+      );
 
-      const totalDrawOps = stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
-      console.log(`\n  Total draw ops (fill+stroke+fillRect+drawImage): ${totalDrawOps}`);
+      const totalDrawOps =
+        stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
+      console.log(
+        `\n  Total draw ops (fill+stroke+fillRect+drawImage): ${totalDrawOps}`,
+      );
       console.log(`  Avg time per draw op: ${formatMs(total / totalDrawOps)}`);
 
       expect(total).toBeLessThan(30_000);
@@ -114,7 +137,9 @@ describe("Pipeline phase profiling", () => {
     renderHashArt(ctx, HASH_DEADBEEF, { width: 1024, height: 1024 });
     const total = performance.now() - start;
 
-    console.log(`\n  ═══ Pipeline profile: 1024×1024 (hash=deadbeef — worst case) ═══`);
+    console.log(
+      `\n  ═══ Pipeline profile: 1024×1024 (hash=deadbeef — worst case) ═══`,
+    );
     console.log(`  Total: ${formatMs(total)}`);
     console.log(`\n  Draw call counts:`);
     console.log(`    fill():           ${stats.fill}`);
@@ -125,7 +150,8 @@ describe("Pipeline phase profiling", () => {
     console.log(`    clip():           ${stats.clip}`);
     console.log(`    save()/restore(): ${stats.save}/${stats.restore}`);
 
-    const totalDrawOps = stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
+    const totalDrawOps =
+      stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
     console.log(`\n  Total draw ops: ${totalDrawOps}`);
     console.log(`  Avg time per draw op: ${formatMs(total / totalDrawOps)}`);
 
@@ -141,17 +167,20 @@ describe("Pipeline phase profiling", () => {
     ];
 
     console.log(`\n  ═══ Shape count comparison (1024×1024) ═══`);
-    console.log(`  ${"Hash".padEnd(12)} ${"Time".padStart(8)} ${"Fills".padStart(7)} ${"Strokes".padStart(8)} ${"FillRects".padStart(10)} ${"Clips".padStart(6)} ${"Total Ops".padStart(10)}`);
+    console.log(
+      `  ${"Hash".padEnd(12)} ${"Time".padStart(8)} ${"Fills".padStart(7)} ${"Strokes".padStart(8)} ${"FillRects".padStart(10)} ${"Clips".padStart(6)} ${"Total Ops".padStart(10)}`,
+    );
 
     for (const hash of hashes) {
       const { ctx, stats } = createInstrumentedCtx(1024, 1024);
       const start = performance.now();
       renderHashArt(ctx, hash, { width: 1024, height: 1024 });
       const ms = performance.now() - start;
-      const totalOps = stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
+      const totalOps =
+        stats.fill + stats.stroke + stats.fillRect + stats.drawImage;
 
       console.log(
-        `  ${hash.slice(0, 10).padEnd(12)} ${formatMs(ms).padStart(8)} ${String(stats.fill).padStart(7)} ${String(stats.stroke).padStart(8)} ${String(stats.fillRect).padStart(10)} ${String(stats.clip).padStart(6)} ${String(totalOps).padStart(10)}`
+        `  ${hash.slice(0, 10).padEnd(12)} ${formatMs(ms).padStart(8)} ${String(stats.fill).padStart(7)} ${String(stats.stroke).padStart(8)} ${String(stats.fillRect).padStart(10)} ${String(stats.clip).padStart(6)} ${String(totalOps).padStart(10)}`,
       );
     }
 

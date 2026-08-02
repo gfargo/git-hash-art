@@ -62,7 +62,9 @@ export type ProportionType = keyof typeof Proportions;
  * Create a seeded 2D simplex noise function.
  * Returns noise(x, y) → float in approximately [-1, 1].
  */
-export function createSimplexNoise(rng: () => number): (x: number, y: number) => number {
+export function createSimplexNoise(
+  rng: () => number,
+): (x: number, y: number) => number {
   // Build a deterministic permutation table (256 entries, doubled)
   const perm = new Uint8Array(512);
   const p = new Uint8Array(256);
@@ -70,15 +72,26 @@ export function createSimplexNoise(rng: () => number): (x: number, y: number) =>
   // Fisher-Yates shuffle with our seeded RNG
   for (let i = 255; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+    const tmp = p[i];
+    p[i] = p[j];
+    p[j] = tmp;
   }
   for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
 
   // 12 gradient vectors for 2D simplex
   const GRAD2 = [
-    [1,1],[-1,1],[1,-1],[-1,-1],
-    [1,0],[-1,0],[0,1],[0,-1],
-    [1,1],[-1,1],[1,-1],[-1,-1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
   ];
 
   const F2 = 0.5 * (Math.sqrt(3) - 1);
@@ -99,8 +112,13 @@ export function createSimplexNoise(rng: () => number): (x: number, y: number) =>
     const y0 = yin - Y0;
 
     let i1: number, j1: number;
-    if (x0 > y0) { i1 = 1; j1 = 0; }
-    else { i1 = 0; j1 = 1; }
+    if (x0 > y0) {
+      i1 = 1;
+      j1 = 0;
+    } else {
+      i1 = 0;
+      j1 = 1;
+    }
 
     const x1 = x0 - i1 + G2;
     const y1 = y0 - j1 + G2;
@@ -110,7 +128,9 @@ export function createSimplexNoise(rng: () => number): (x: number, y: number) =>
     const ii = i & 255;
     const jj = j & 255;
 
-    let n0 = 0, n1 = 0, n2 = 0;
+    let n0 = 0,
+      n1 = 0,
+      n2 = 0;
 
     let t0 = 0.5 - x0 * x0 - y0 * y0;
     if (t0 >= 0) {

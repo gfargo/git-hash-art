@@ -38,7 +38,12 @@ export const drawBlob: DrawFunction = (ctx, size, config) => {
   for (let i = 0; i < numPoints; i++) {
     const curr = points[i];
     const next = points[(i + 1) % numPoints];
-    ctx.quadraticCurveTo(curr.x, curr.y, (curr.x + next.x) / 2, (curr.y + next.y) / 2);
+    ctx.quadraticCurveTo(
+      curr.x,
+      curr.y,
+      (curr.x + next.x) / 2,
+      (curr.y + next.y) / 2,
+    );
   }
   ctx.closePath();
 };
@@ -126,8 +131,12 @@ export const drawSpirograph: DrawFunction = (ctx, size, config) => {
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * maxT;
-    const x = ((R - r) * Math.cos(t) + d * Math.cos(((R - r) / r) * t)) * scale / (1 + d);
-    const y = ((R - r) * Math.sin(t) - d * Math.sin(((R - r) / r) * t)) * scale / (1 + d);
+    const x =
+      (((R - r) * Math.cos(t) + d * Math.cos(((R - r) / r) * t)) * scale) /
+      (1 + d);
+    const y =
+      (((R - r) * Math.sin(t) - d * Math.sin(((R - r) / r) * t)) * scale) /
+      (1 + d);
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
@@ -279,7 +288,8 @@ export const drawTendril: DrawFunction = (ctx, size, config) => {
   // Build spine points
   const spine: Array<{ x: number; y: number }> = [];
   let angle = startAngle;
-  let px = 0, py = 0;
+  let px = 0,
+    py = 0;
   for (let i = 0; i <= segments; i++) {
     spine.push({ x: px, y: py });
     const stepLen = (r / segments) * (1.5 + rng() * 0.5);
@@ -328,7 +338,7 @@ export const drawCloudForm: DrawFunction = (ctx, size, config) => {
 
   ctx.beginPath();
   for (let i = 0; i < lobeCount; i++) {
-    const t = (i / (lobeCount - 1)) - 0.5; // -0.5 to 0.5
+    const t = i / (lobeCount - 1) - 0.5; // -0.5 to 0.5
     const sx = Math.cos(spineAngle) * spineLen * t;
     const sy = Math.sin(spineAngle) * spineLen * t;
     // Offset perpendicular for cloud shape
