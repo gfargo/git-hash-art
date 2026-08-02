@@ -34,7 +34,9 @@ A commit hash seeds a deterministic PRNG that drives every decision in a multi-s
 - **44 shapes across 5 categories** — basic, complex, sacred geometry, procedural, and *noise-field organics* whose silhouettes are contoured from hash-seeded simplex noise, so no two renders ever repeat a form
 - **17 render styles** — watercolor bleeds, ink-bleed with fiber wicking and satellite droplets, gravity-correct paint drips, stipple, cross-hatch, hand-drawn wobble, and more
 - **Generative mark-making** — branching growth structures (coral roots or crack networks), sweeping hero flow ribbons, and rare hard-mirror Rorschach symmetry
-- **Composition & color discipline** — rule-of-thirds anchors with edge bleed, dominant/secondary/accent color hierarchies, background-aware blend modes, value hierarchy by scale
+- **Composition & color discipline** — rule-of-thirds anchors with edge bleed, dominant/secondary/accent color hierarchies, background-aware blend modes, value hierarchy by scale, and a scale hierarchy that guarantees every image a large/medium/small reading
+- **Color zoning** — a low-frequency field splits the canvas into two color passages so large masses carry genuinely different hues, backed by a protected accent quota and a synthesized split-complementary accent for palettes that would otherwise collapse to one hue
+- **Alpha-aware contrast** — shape colors are pushed away from the ground by enough to survive the transparency they're painted at, so soft archetypes stay soft without going invisible
 - **Physical finishing** — torn-paper deckle frames, translucent vellum sheets, film grain, palette-tinted vignettes, and a per-hash signature chop mark
 
 The full pipeline is documented in [ALGORITHM.md](ALGORITHM.md).
