@@ -2,6 +2,7 @@ import ColorScheme from "color-scheme";
 import "../../../global.d";
 
 import { gitHashToSeed, createRng, seedFromHash } from "../utils";
+import { hexToOklch, oklchToHex, hueDelta, perceivedLightness } from "./oklch";
 
 // ── Color variation modes ───────────────────────────────────────────
 // The hash deterministically selects a variation, producing dramatically
@@ -347,6 +348,10 @@ export class SacredColorScheme {
   }
 }
 
+// sRGB chroma reaches roughly 0.37 at its widest; callers still speak in
+// HSL-scale saturation amounts (0-1), so this maps between the two.
+const CHROMA_PER_SAT = 0.32;
+
 // ── Standalone color utilities ──────────────────────────────────────
 
 // ── Cached hex→RGB parse — avoids repeated parseInt/substring on hot path ──
@@ -553,11 +558,15 @@ export function jitterColorHSL(
   hueAmount = 8,
   slAmount = 0.06,
 ): string {
-  const [h, s, l] = hexToHsl(hex);
-  const newH = (h + (rng() - 0.5) * hueAmount * 2 + 360) % 360;
-  const newS = Math.max(0, Math.min(1, s + (rng() - 0.5) * slAmount * 2));
-  const newL = Math.max(0, Math.min(1, l + (rng() - 0.5) * slAmount * 2));
-  return hslToHex(newH, newS, newL);
+  // Name kept — every call site passes the same arguments. The jitter is
+  // now perceptually even, so a wobble reads the same size on every hue
+  // instead of being violent in the yellows and invisible in the blues.
+  const { L, C, h } = hexToOklch(hex);
+  return oklchToHex(
+    Math.max(0, Math.min(1, L + (rng() - 0.5) * slAmount * 2)),
+    Math.max(0, C + (rng() - 0.5) * slAmount * 2 * CHROMA_PER_SAT),
+    h + (rng() - 0.5) * hueAmount * 2,
+  );
 }
 
 export function jitterColor(
@@ -575,10 +584,11 @@ export function jitterColor(
  * `amount` 0 = unchanged, 1 = fully gray.
  */
 export function desaturate(hex: string, amount: number): string {
-  const [r, g, b] = hexToRgb(hex);
-  const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-  const mix = (c: number) => c + (gray - c) * amount;
-  return rgbToHex(mix(r), mix(g), mix(b));
+  // Pulling chroma toward 0 holds perceived lightness. Mixing toward a
+  // luminance grey in RGB did not: desaturating a yellow lightened it and
+  // desaturating a blue darkened it, so atmospheric depth also shifted value.
+  const { L, C, h } = hexToOklch(hex);
+  return oklchToHex(L, C * Math.max(0, 1 - amount), h);
 }
 
 /**
@@ -620,65 +630,64 @@ export function luminance(hex: string): number {
  * `bgLuminance` is 0-1 (pre-computed from the background color).
  * `minContrast` is the minimum luminance difference to enforce (default 0.15).
  */
-export function contrastFloorFor(bgLuminance: number): number {
-  // A near-white ground hides a mark that the same luminance gap would
-  // make legible on a mid ground, so the requirement scales with how
-  // light the ground is. Without this, pastel archetypes cleared the
-  // flat 0.15 floor while still being effectively invisible.
-  return bgLuminance > 0.7 ? 0.15 + (bgLuminance - 0.7) * 0.9 : 0.15;
+export function contrastFloorFor(bgLightness: number): number {
+  // Expressed in OKLCH lightness, where the numbers mean the same thing at
+  // every hue. Extreme grounds still need more separation: a mark on
+  // near-white has less room to read than the same gap in the midtones.
+  if (bgLightness > 0.78) return 0.16 + (bgLightness - 0.78) * 0.7;
+  if (bgLightness < 0.22) return 0.16 + (0.22 - bgLightness) * 0.5;
+  return 0.16;
 }
 
+/**
+ * Push a colour away from the ground until it is legible against it.
+ *
+ * `bgLightness` and `minSeparation` are OKLCH lightness, 0-1.
+ *
+ * The HSL version had to *bisect*: it wanted a relative-luminance gap, but
+ * could only steer lightness, and the mapping between them depends on hue —
+ * so it searched, seven iterations per call, on the hot path. In OKLCH the
+ * quantity being steered is the quantity being measured, so the correction
+ * is one subtraction.
+ */
 export function enforceContrast(
   fgHex: string,
-  bgLuminance: number,
-  minContrast?: number,
+  bgLightness: number,
+  minSeparation?: number,
 ): string {
-  const required = minContrast ?? contrastFloorFor(bgLuminance);
+  const required = minSeparation ?? contrastFloorFor(bgLightness);
+  const { L, C, h } = hexToOklch(fgHex);
+  if (Math.abs(L - bgLightness) >= required) return fgHex;
 
-  const fgLum = luminance(fgHex);
-  if (Math.abs(fgLum - bgLuminance) >= required) return fgHex;
-
-  const [h, s, l] = hexToHsl(fgHex);
-  const goDark = bgLuminance > 0.5;
-  const targetLum = goDark ? bgLuminance - required : bgLuminance + required;
-  const targetS = Math.min(goDark ? 0.85 : 0.9, s + 0.1);
-
-  // Lightness and luminance are on different scales, so the previous
-  // single damped step in lightness routinely undershot the luminance
-  // target and returned a colour that was still invisible. Luminance is
-  // monotonic in lightness for a fixed hue/saturation, so bisect for the
-  // lightness closest to the original that actually clears the gap.
-  // The bounds keep results tinted rather than pure black or white.
-  let lo = goDark ? 0.12 : l;
-  let hi = goDark ? l : 0.93;
-  for (let i = 0; i < 7; i++) {
-    const mid = (lo + hi) / 2;
-    const midLum = hslLuminance(h, targetS, mid);
-    if (goDark ? midLum > targetLum : midLum < targetLum) {
-      if (goDark) hi = mid;
-      else lo = mid;
-    } else {
-      if (goDark) lo = mid;
-      else hi = mid;
-    }
-  }
-  return hslToHex(h, targetS, goDark ? lo : hi);
+  const goDark = bgLightness > 0.5;
+  const target = goDark ? bgLightness - required : bgLightness + required;
+  // Bounds keep results tinted rather than pure black or white.
+  const clamped = Math.max(0.12, Math.min(0.95, target));
+  // Deep and very light colours hold less chroma in sRGB; lift it a little
+  // so an enforced colour stays a hue rather than sliding toward grey.
+  return oklchToHex(clamped, C + 0.02, h);
 }
 
 /**
  * Shift a hex color's saturation by a signed amount (clamped to [0, 1]).
  */
 export function adjustSaturation(hex: string, amount: number): string {
-  const [h, s, l] = hexToHsl(hex);
-  return hslToHex(h, Math.max(0, Math.min(1, s + amount)), l);
+  // Callers pass HSL-scale amounts (0-1). sRGB chroma only reaches ~0.37,
+  // so scale into chroma units rather than reinterpreting the number.
+  // Out-of-gamut chroma is reduced by oklchToHex, holding hue and lightness.
+  const { L, C, h } = hexToOklch(hex);
+  return oklchToHex(L, Math.max(0, C + amount * CHROMA_PER_SAT), h);
 }
 
 /**
  * Shift a hex color's lightness by a signed amount (clamped to [0.04, 0.96]).
  */
 export function adjustLightness(hex: string, amount: number): string {
-  const [h, s, l] = hexToHsl(hex);
-  return hslToHex(h, s, Math.max(0.04, Math.min(0.96, l + amount)));
+  // In OKLCH this is the same perceptual step whatever the hue. In HSL it
+  // was a large move at hue 60 and nearly invisible at hue 240, which made
+  // the tone-on-tone stroke hierarchy inconsistent by colour.
+  const { L, C, h } = hexToOklch(hex);
+  return oklchToHex(Math.max(0.05, Math.min(0.97, L + amount)), C, h);
 }
 
 /**
@@ -728,8 +737,8 @@ export function mixColor(a: string, b: string, t: number): string {
  * Rotate the hue of a hex color by a given number of degrees.
  */
 export function hueRotate(hex: string, degrees: number): string {
-  const [h, s, l] = hexToHsl(hex);
-  return hslToHex((h + degrees + 360) % 360, s, l);
+  const { L, C, h } = hexToOklch(hex);
+  return oklchToHex(L, C, h + degrees);
 }
 
 /**
@@ -756,11 +765,14 @@ export function toGroundValue(
  * single wash no matter how it is used.
  */
 export function paletteHueSpan(colors: string[]): number {
+  // OKLCH hue steps are near-uniform, so 30 degrees means the same amount
+  // of colour difference everywhere. In HSL it did not, which made the
+  // guaranteed-accent-separation threshold stricter for some palettes than
+  // others for no reason anyone chose.
   const hues = colors
-    .map((c) => hexToHsl(c))
-    // Near-gray colors have a meaningless hue — exclude them
-    .filter(([, s, l]) => s > 0.08 && l > 0.05 && l < 0.95)
-    .map(([h]) => h);
+    .map((c) => hexToOklch(c))
+    .filter((o) => o.C > 0.02 && o.L > 0.05 && o.L < 0.97)
+    .map((o) => o.h);
   if (hues.length < 2) return 0;
   let maxSep = 0;
   for (let i = 0; i < hues.length; i++) {

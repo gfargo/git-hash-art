@@ -60,6 +60,7 @@ import {
   pickStyleForShape,
   SHAPE_PROFILES,
 } from "./canvas/shapes/affinity";
+import { perceivedLightness } from "./canvas/oklch";
 import {
   computeAttractorField,
   paintAttractorField,
@@ -878,8 +879,18 @@ export function renderHashArt(
     ctx.fillRect(gx, gy, gw, gh);
   }
 
-  // Compute average background luminance for contrast enforcement
+  // Two background measures, deliberately:
+  //
+  // `bgLum` is sRGB relative luminance. Every threshold in this file
+  // (blend-mode pools, alpha boosts, the light/dark branch of the material
+  // layer) was calibrated against it, so it stays.
+  //
+  // `bgLightness` is OKLCH L — perceived lightness. Contrast enforcement
+  // uses it because there the quantity being steered *is* the quantity being
+  // measured, which is what removes the search loop the HSL version needed.
   const bgLum = (luminance(bgStart) + luminance(bgEnd)) / 2;
+  const bgLightness =
+    (perceivedLightness(bgStart) + perceivedLightness(bgEnd)) / 2;
 
   // ── 1b. Layered background — archetype-coherent shapes ─────────
   // Use source-over with pre-multiplied alpha instead of soft-light
@@ -1352,13 +1363,13 @@ export function renderHashArt(
     const heroFill = hexWithAlpha(
       enforceContrast(
         jitterColorHSL(colorHierarchy.dominant, rng, 6, 0.05),
-        bgLum,
+        bgLightness,
       ),
       0.4 + rng() * 0.25,
     );
     const heroStroke = enforceContrast(
       jitterColorHSL(colorHierarchy.accent, rng, 6, 0.05),
-      bgLum,
+      bgLightness,
     );
 
     // Get best style for this hero shape
@@ -1880,19 +1891,22 @@ export function renderHashArt(
       // the requirement by the alpha, capped so soft archetypes stay soft
       // rather than turning into ink.
       const alphaCompensation = Math.min(2.2, 1 / Math.max(0.3, fillAlpha));
+      // Cap in OKLCH lightness units. 0.42 is roughly the largest
+      // separation worth asking for before an "enforced" colour stops
+      // resembling the one the palette chose.
       const markContrast = Math.min(
-        0.5,
-        contrastFloorFor(bgLum) * alphaCompensation,
+        0.42,
+        contrastFloorFor(bgLightness) * alphaCompensation,
       );
 
       const fillColor = enforceContrast(
         jitterColorHSL(fillBase, rng, 6, 0.05),
-        bgLum,
+        bgLightness,
         markContrast,
       );
       const strokeColor = enforceContrast(
         jitterColorHSL(strokeBase, rng, 5, 0.04),
-        bgLum,
+        bgLightness,
         markContrast,
       );
       // Large near-black masses on light backgrounds read as glitches —
@@ -2237,7 +2251,7 @@ export function renderHashArt(
             );
             const memberStroke = enforceContrast(
               jitterColorHSL(strokeBase, rng, 5, 0.04),
-              bgLum,
+              bgLightness,
             );
 
             ctx.globalAlpha = layerOpacity * 0.6;
@@ -2421,11 +2435,11 @@ export function renderHashArt(
     // Variable color: interpolate between two hierarchy colors along the stroke
     const lineColorStart = enforceContrast(
       pickHierarchyColor(colorHierarchy, rng),
-      bgLum,
+      bgLightness,
     );
     const lineColorEnd = enforceContrast(
       pickHierarchyColor(colorHierarchy, rng),
-      bgLum,
+      bgLightness,
     );
     const lineAlpha = 0.06 + rng() * 0.1;
 
@@ -2576,11 +2590,11 @@ export function renderHashArt(
       const baseWidth = (5 + rng() * 8) * scaleFactor;
       const colorA = enforceContrast(
         pickHierarchyColor(colorHierarchy, rng),
-        bgLum,
+        bgLightness,
       );
       const colorB = enforceContrast(
         pickHierarchyColor(colorHierarchy, rng),
-        bgLum,
+        bgLightness,
       );
       const ribbonAlpha = 0.09 + rng() * 0.09;
       let prevX = rx;
@@ -2665,7 +2679,7 @@ export function renderHashArt(
 
         const eAlpha = 0.04 + rng() * 0.06;
         const eColor = hexWithAlpha(
-          enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum),
+          enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLightness),
           0.3,
         );
         const eLw = (0.5 + rng() * 1.5) * scaleFactor;
@@ -2877,7 +2891,7 @@ export function renderHashArt(
 
       const curveAlpha = 0.06 + rng() * 0.1;
       const curveColor = hexWithAlpha(
-        enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLum),
+        enforceContrast(pickHierarchyColor(colorHierarchy, rng), bgLightness),
         0.3,
       );
 

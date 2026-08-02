@@ -237,6 +237,40 @@ Color generation uses the `color-scheme` library seeded from the hash, then appl
 
 **limited-palette** — Only 3 colors total, spaced roughly 120° apart with slight randomization. Mimics the look of risograph or screen-printed art where ink colors are limited. The constraint forces the hierarchy system to work harder, producing bold, graphic compositions.
 
+### Perceptual Colour Space
+
+Colour operations are expressed in **OKLCH**, not HSL.
+
+HSL's "lightness" is a geometric convenience, not a perceptual quantity.
+Twelve hues at HSL `L=0.50` span an **11.7× range** in actual luminance —
+yellow reads as near-white, blue as near-black. The same twelve at OKLCH
+`L=0.62` span 1.2×.
+
+Everything still enters and leaves as `#rrggbb`, so the draw layer is
+untouched. `color-scheme` remains the hue generator; OKLCH is the layer
+underneath it.
+
+What this fixes, concretely:
+
+| Operation | Under HSL | Under OKLCH |
+| --------- | --------- | ----------- |
+| `adjustLightness(c, -0.18)` | a large step at hue 60, nearly invisible at hue 240 — stroke hierarchy varied by colour | the same perceptual step everywhere |
+| `enforceContrast` | had to bisect for a lightness producing the wanted luminance | one subtraction |
+| `paletteHueSpan` | 30° meant different amounts of colour difference in different parts of the wheel | near-uniform |
+| `desaturate` | mixed toward a luminance grey in RGB, so desaturating lightened yellows and darkened blues | pulls chroma toward 0, holding lightness |
+
+**Gamut mapping.** OKLCH can describe colours sRGB cannot show. Rather than
+clipping channels — which shifts hue, since a too-saturated blue clips its
+blue channel and drifts toward cyan — chroma is reduced by bisection until
+the colour fits, holding L and h. Hue and lightness are what the palette
+logic reasons about, so those are what get preserved.
+
+**Two background measures.** `bgLum` (sRGB relative luminance) still drives
+every threshold calibrated against it — blend-mode pools, alpha boosts, the
+light/dark branch of the material layer. `bgLightness` (OKLCH L) drives
+contrast enforcement. They are not interchangeable and the distinction is
+deliberate.
+
 ### Color Hierarchy
 
 After generating the raw palette, colors are organized into a **hierarchy** with weighted selection:
@@ -314,11 +348,13 @@ from it if the gap is too small. Three properties make this actually work:
   third of what its color promises. The requirement is divided by the fill
   alpha (capped at 2.2×, and the result capped at 0.5) so translucent washes on
   light grounds still register.
-- **Solved, not nudged.** Lightness and luminance are on different scales, so a
-  single damped step in lightness routinely undershot the luminance target.
-  The correction bisects over lightness (7 iterations, bounds 0.12–0.93 so
-  results stay tinted rather than pure black or white) using a direct
-  HSL→luminance path that avoids allocating a hex string per probe.
+- **Solved, not searched.** Expressed in OKLCH, the quantity being steered is
+  the quantity being measured, so the correction is one subtraction:
+  `target = bgL ± required`, clamped to 0.12–0.95 so results stay tinted
+  rather than pure black or white. The HSL version had to *bisect* — it
+  wanted a relative-luminance gap but could only steer lightness, and the
+  mapping between them depends on hue — which cost seven iterations per call
+  on the hot path.
 
 ### Color Palette Evolution
 
