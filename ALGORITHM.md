@@ -575,6 +575,36 @@ carries structure, and at full density the stamps just bury it.
 
 ~70% of images place the composition's center of gravity **off-center** — the radial, spiral, and golden-spiral modes orbit the primary focal point (a rule-of-thirds intersection) instead of the canvas center. Placement radii extend to ~0.55–0.58 of the short dimension, so shapes reach and crop past the frame edge. Together these break the "centered blob" silhouette: mass sits on a thirds line, the far side opens into negative space, and edge-cropped shapes make the composition feel larger than the canvas.
 
+### Aspect-Native Placement
+
+Placement extents are per-axis (`width * 0.58`, `height * 0.58`), not a single
+`min(width, height)` radius.
+
+With a scalar radius every centred mode — radial, spiral, golden-spiral —
+placed inside a disc the size of the **short** edge. On a 768×256 banner that
+is a ~300px composition floating in a 768px frame with two dead thirds.
+Measured across the evaluation corpus, failure rate tracked aspect ratio
+almost linearly:
+
+| Format | Before | After |
+| ------ | ------ | ----- |
+| square 1:1 | 19% | 19% |
+| portrait 1:1.6 | 28% | 25% |
+| landscape 1.6:1 | 31% | 22% |
+| banner 3:1 | 44% | 31% |
+
+Median edge engagement on banners went 0.28 → 0.39, coverage 0.41 → 0.54.
+
+Two related fixes came with it. `grid-subdivision` splits its cell count by
+the square root of the aspect, so cells stay roughly square instead of
+becoming three times wider than tall on a banner. `clustered` sizes its
+spread by the geometric mean of the canvas rather than the short edge — a
+cluster should stay a blob, but on a banner the short edge made it a fifth
+the size it would be on a square of equal area.
+
+Extents deliberately exceed 0.5 per axis so shapes crop against the boundary
+rather than stopping short of it.
+
 ### Composition Modes
 
 Each image uses one of 6 composition strategies for shape placement. Composition mode selection is **archetype-aware**: each archetype declares a `preferredCompositions` array, and selection is 70% from the archetype's preferred modes / 30% from the full set. This ensures archetypes get compositions that suit their character while preserving variety.
