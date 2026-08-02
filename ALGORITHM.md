@@ -37,6 +37,7 @@ Hash String
        3.  Focal Points (rule-of-thirds biased) + Void Zones (archetype-aware density)
        3a. Composition Anchor (~70% off-center: radial modes orbit a thirds point, shapes bleed past the frame)
        3b. Void Zone Decoration (halos, scattered dots, concentric rings)
+       1d. Attractor Substrate (~⅓ of images: hash-seeded strange attractor density field)
        4.  Flow Field Initialization (simplex noise FBM)
        4a. Noise Size Modulation (terrain-like size variation from noise field)
        4b. Hero Shape (palette-aware, affinity-styled)
@@ -458,6 +459,74 @@ The pattern spacing scales with canvas size (1.5–3% of the shorter dimension).
 ### Background Luminance
 
 The average luminance of the two background colors is computed and stored. This value drives contrast enforcement for all foreground shapes — ensuring they remain visible regardless of background brightness.
+
+## 5b. Attractor Substrate
+
+Every other mark in this library is a **stamp**: a shape from a fixed
+vocabulary, placed where the composition system chose. That caps how complex
+an image can get, because complexity has to be assembled out of parts somebody
+drew — and it is why a weak silhouette in the vocabulary shows up as a weak
+image.
+
+An attractor produces form the opposite way. Iterating a two-line map a
+quarter of a million times and accumulating where the orbit lands yields
+filigree nobody authored: no silhouette to read as anything, structure far
+finer than the shape layer can build, and a whole family of forms out of four
+numbers.
+
+Around a third of images get one. It is a **substrate**, not a subject —
+enough that the composition inherits a structure it did not author, not so
+much that the result becomes generic attractor art.
+
+### Maps and rejection
+
+Three maps (de Jong, Clifford, Svensson), parameters drawn from the hash in
+[-3, 3]. Most parameter draws are unusable — they diverge, collapse to a
+point, or degenerate to a hairline — so a probe pass of 12k iterations
+establishes the orbit's extent and the plotted field is then rejected unless
+it covers ≥3% of the grid and spreads its density rather than piling into a
+few cells. A little under half of attempts are rejected; the caller falls
+back to no substrate rather than retrying, so the RNG stream stays
+predictable.
+
+### Cropping
+
+The orbit is deliberately **zoomed past the frame** (1.0–1.9×) and drifted
+off-centre. Plotted to fit, an attractor is always a symmetrical object
+floating in the middle of the canvas — exactly the centred-blob silhouette
+the composition system spends its effort avoiding.
+
+### Rendering
+
+Density is accumulated into a fixed 288² grid — fixed rather than tied to
+canvas size, so cost and appearance stay stable from a 512px thumbnail to a
+2048px print — then normalised **logarithmically**, because linear
+normalisation crushes everything except the densest spines and loses the thin
+outer veils that carry most of the detail.
+
+It is painted as eight density bands, each emitted as a single batched path.
+This avoids `putImageData` and any off-screen canvas, so the renderer still
+touches nothing but the standard 2D context and still respects `globalAlpha`
+and the layer blend mode. An earlier four-band version made the quantisation
+visible: the sparse tail rendered as discrete specks and read as dirt on the
+lens rather than as filigree. Eight bands with a superlinear alpha ramp, and
+a cut through the sparsest cells, fixed it.
+
+### Integration
+
+Two things make this a hybrid rather than two pictures stacked:
+
+- **Placement affinity.** Shapes are rejected with 55% probability where field
+  density is under 0.1, so the shape layer settles along the orbit's spines
+  instead of ignoring it. Kept partial, so the composition still breathes into
+  the empty regions rather than tracing the orbit exactly.
+- **Re-assertion.** A second, much fainter pass of only the densest bands is
+  drawn *over* the shape layers in `multiply` (light grounds) or `screen`
+  (dark), lacing the structure back through. Underlaying alone leaves the
+  field as wallpaper that the shape layers simply cover.
+
+Shape count drops to 60% when a substrate is present: the image already
+carries structure, and at full density the stamps just bury it.
 
 ## 6. Composition & Symmetry
 
