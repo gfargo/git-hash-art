@@ -1067,6 +1067,17 @@ export function renderHashArt(
           ? "quad"
           : "none";
 
+  if (finalConfig._debugInfo) {
+    const info = finalConfig._debugInfo;
+    info.archetype = archetype.name;
+    info.paletteMode = archetype.paletteMode;
+    info.backgroundStyle = archetype.backgroundStyle;
+    info.compositionMode = compositionMode;
+    info.symmetry = symmetryMode;
+    info.attractor = attractorField !== null;
+    info.backgroundLuminance = bgLum;
+  }
+
   // ── 3. Focal points + void zones (archetype-aware) ───────────────
   const THIRDS_POINTS = [
     { x: 1 / 3, y: 1 / 3 },

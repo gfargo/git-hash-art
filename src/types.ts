@@ -70,6 +70,20 @@ export interface GenerationConfig {
    * in palette selection, affinity matching, and all render styles.
    */
   customShapes?: Record<string, CustomShapeDefinition>;
+  /**
+   * Internal: collect the scene decisions this render made, so tooling can
+   * report on archetype and mode distribution across a corpus rather than
+   * inferring it from pixels (not part of public API).
+   */
+  _debugInfo?: {
+    archetype: string;
+    paletteMode: string;
+    backgroundStyle: string;
+    compositionMode: string;
+    symmetry: string;
+    attractor: boolean;
+    backgroundLuminance: number;
+  };
   /** Internal: collect per-phase timing data when set (not part of public API) */
   _debugTiming?: {
     phases: Record<string, number>;

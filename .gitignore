@@ -165,3 +165,5 @@ dist
 examples/
 
 .www
+# Local output from bin/evaluate.js (baseline is committed separately)
+.evaluation/
