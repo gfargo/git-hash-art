@@ -83,6 +83,47 @@ Hash String
        12. Signature Mark (density-aware placement, deterministic geometric chop mark)
 ```
 
+## 0. Evaluating Changes
+
+The test suite checks determinism and validity — that a render happens, and
+happens the same way twice. It says nothing about whether the images are any
+good, which is the property that actually regresses, and the failure mode is
+usually *uniformity* rather than error: output stays deterministic, nothing
+throws, the pictures are just worse.
+
+`yarn evaluate` renders a fixed 128-hash corpus across square, landscape,
+portrait and banner formats, computes metrics designed to catch specific
+failures, writes contact sheets, and diffs against the committed baseline in
+`evaluation-baseline.json`.
+
+The corpus hashes derive from a constant seed, so the same images are
+evaluated on every machine and in every session. Comparisons are meaningless
+otherwise.
+
+| Metric | Failure it detects |
+| ------ | ------------------ |
+| `valueRange` | flat, no tonal separation |
+| `coverage` | nothing painted |
+| `edgeDensity` | no structure — a canvas of two huge gradient fills scores well on range and coverage but has nothing to look at |
+| `meanChroma` | colourless |
+| `clippedHighlights` | pale archetypes losing detail into white |
+| `crushedShadows` | dark archetypes collapsing into black |
+| `edgeEngagement` | composition floating in dead margin instead of meeting the frame |
+| `massOffset` | the centred-blob silhouette |
+| `hueSpread` | single-hue wash (note: legitimately penalises deliberate two-colour work) |
+
+Scene decisions — archetype, palette mode, background style, composition
+mode, symmetry, whether an attractor fired — are reported through the
+`_debugInfo` out-param, so diversity is measured from what the renderer chose
+rather than guessed from pixels.
+
+**These metrics triage; they do not judge.** They exist to find likely
+failures quickly, not to define quality. The gate is looking at the sheets —
+flagged tiles get a red border so the eye goes to them first.
+
+Run `yarn evaluate:baseline` to record the current state after a change is
+accepted.
+
 ## 1. Deterministic RNG
 
 All randomness flows from a single **mulberry32** PRNG seeded by hashing the full input string:
