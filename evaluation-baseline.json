@@ -1,24 +1,24 @@
 {
   "summary": {
     "metrics": {
-      "valueRange": 0.5239,
-      "meanChroma": 0.1047,
-      "coverage": 0.5143,
-      "edgeDensity": 0.2036,
-      "edgeEngagement": 0.3727,
-      "hueSpread": 0.1215,
+      "valueRange": 0.5108,
+      "meanChroma": 0.1128,
+      "coverage": 0.5564,
+      "edgeDensity": 0.2291,
+      "edgeEngagement": 0.4016,
+      "hueSpread": 0.1434,
       "clippedHighlights": 0,
       "crushedShadows": 0,
-      "massOffset": 0.0776
+      "massOffset": 0.0653
     },
     "failures": {
-      "flat": 0.078125,
-      "empty": 0.1640625,
-      "bare": 0.0078125,
+      "flat": 0.0859375,
+      "empty": 0.1171875,
+      "bare": 0.0234375,
       "blownOut": 0,
       "crushed": 0,
-      "drab": 0.1328125,
-      "any": 0.3046875
+      "drab": 0.109375,
+      "any": 0.2421875
     },
     "scene": {
       "archetype": {
@@ -89,9 +89,9 @@
       "attractorShare": 0.3359375
     },
     "timing": {
-      "meanMs": 63.4,
-      "medianMs": 28.9,
-      "p95Ms": 280.1
+      "meanMs": 71.6,
+      "medianMs": 29,
+      "p95Ms": 331.6
     }
   }
 }
