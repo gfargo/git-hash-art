@@ -294,15 +294,37 @@ Not all shapes look equally good at all sizes or in all combinations. The affini
 
 ### Shape Inventory
 
-The system includes 40+ shapes across 4 categories:
+The system includes 44 shapes across 5 categories. Shapes marked ~~struck~~
+are present in the registry but weighted to 0, so they never enter a palette —
+see **Selection Weight** below.
 
 | Category | Shapes |
 | -------- | ------ |
-| Basic (9) | circle, square, triangle, hexagon, star, jacked-star, heart, diamond, cube |
-| Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, fractal |
-| Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, torus, eggOfLife |
-| Procedural (18) | blob, ngon, lissajous, superellipse, spirograph, waveRing, rose, shardField, voronoiCell, crescent, tendril, cloudForm, inkSplat, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, crosshatchPatch |
+| Basic (9) | circle, square, triangle, hexagon, star, ~~jacked-star~~, ~~heart~~, diamond, cube |
+| Complex (7) | platonicSolid, fibonacciSpiral, islamicPattern, celticKnot, merkaba, mandala, ~~fractal~~ |
+| Sacred (8) | flowerOfLife, treeOfLife, metatronsCube, sriYantra, seedOfLife, vesicaPiscis, ~~torus~~, eggOfLife |
+| Procedural (18) | blob, ngon, lissajous, superellipse, ~~spirograph~~, ~~waveRing~~, ~~rose~~, shardField, voronoiCell, crescent, tendril, cloudForm, ~~inkSplat~~, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, ~~crosshatchPatch~~ |
 | Organic (2) | noiseForm, contourField — **no fixed silhouette**: each draw contours a hash-seeded simplex noise field via marching squares, producing genuinely novel island/cell outlines (with occasional satellite islets); contourField adds nested topographic rings |
+
+### Selection Weight
+
+Alongside `tier`, each profile carries an optional `weight` (default 1) that
+scales how often the shape is chosen. `tier` describes *where* a shape works —
+at what size, in what context. `weight` describes *how often it should turn up
+at all*, which is a separate question and needed its own dial.
+
+Weight 0 removes a shape from palette construction entirely — filtered once in
+`buildShapePalette`, which covers primary, supporting, accent, affinity
+spill-in and the hero pool in a single place. The draw function stays in the
+registry and remains reachable through the custom-shapes API.
+
+The translucent pipeline camouflages a lot: shapes overlap into a haze, so a
+weak silhouette is rarely read on its own. It still tells in aggregate — a
+vocabulary containing a heart, a little tree, cartoon sparkles and a starburst
+makes the whole corpus feel like clip art rather than something computed. Ten
+shapes are set to 0 on those grounds, and six more are damped for being weak or
+redundant (three near-identical circle-clusters were one look occupying three
+slots). Every weight in `SHAPE_PROFILES` carries an inline reason.
 
 ### Quality Tiers
 

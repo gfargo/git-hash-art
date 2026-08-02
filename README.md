@@ -31,7 +31,7 @@ Every commit becomes a one-of-a-kind abstract composition — same hash, same im
 A commit hash seeds a deterministic PRNG that drives every decision in a multi-stage rendering pipeline:
 
 - **17 visual archetypes** — fundamentally different personalities (`minimal-spacious`, `neon-glow`, `watercolor-wash`, `shattered-glass`, `celestial`, …), with ~15% of hashes blending two
-- **44 shapes across 5 categories** — basic, complex, sacred geometry, procedural, and *noise-field organics* whose silhouettes are contoured from hash-seeded simplex noise, so no two renders ever repeat a form
+- **34 active shapes across 5 categories** — basic, complex, sacred geometry, procedural, and *noise-field organics* whose silhouettes are contoured from hash-seeded simplex noise, so no two renders ever repeat a form
 - **17 render styles** — watercolor bleeds, ink-bleed with fiber wicking and satellite droplets, gravity-correct paint drips, stipple, cross-hatch, hand-drawn wobble, and more
 - **Generative mark-making** — branching growth structures (coral roots or crack networks), sweeping hero flow ribbons, and rare hard-mirror Rorschach symmetry
 - **Composition & color discipline** — rule-of-thirds anchors with edge bleed, dominant/secondary/accent color hierarchies, background-aware blend modes, value hierarchy by scale, and a scale hierarchy that guarantees every image a large/medium/small reading

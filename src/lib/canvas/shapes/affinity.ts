@@ -28,6 +28,22 @@ export interface ShapeProfile {
   heroCandidate: boolean;
   /** Best render styles for this shape */
   bestStyles: string[];
+  /**
+   * Relative selection frequency. Defaults to 1.
+   *
+   * A weight of 0 removes the shape from palette construction entirely
+   * while leaving its draw function available to the custom-shapes API.
+   *
+   * The translucent pipeline camouflages a lot: individual shapes overlap
+   * into a haze, so a weak silhouette rarely gets read on its own. It still
+   * shows up in aggregate — a run of literal objects (a heart, a little
+   * tree) or cartoon sparkles makes the whole corpus feel like clip art
+   * rather than something computed. Weight is the dial for that, kept
+   * separate from `tier` because tier is about *where a shape works*
+   * (size, context) and weight is about *how often it should appear at
+   * all*.
+   */
+  weight?: number;
 }
 
 export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
@@ -82,6 +98,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "stroke-only", "dashed"],
+    weight: 0.3, // the classic five-point star is the most generic mark available
   },
   "jacked-star": {
     tier: 3,
@@ -91,6 +108,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed"],
+    weight: 0, // sparkle sticker
   },
   heart: {
     tier: 3,
@@ -100,6 +118,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-only", "watercolor"],
+    weight: 0, // a literal object, and the only overtly sentimental mark in the set
   },
   diamond: {
     tier: 2,
@@ -118,6 +137,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["stroke-only", "fill-and-stroke"],
+    weight: 0.3, // reads as a plain square at most sizes, duplicating `square`
   },
 
   // ── Complex shapes ────────────────────────────────────────────
@@ -156,6 +176,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "double-stroke"],
+    weight: 0.5, // the lattice rarely resolves as a knot at working sizes
   },
   merkaba: {
     tier: 1,
@@ -183,6 +204,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "incomplete"],
+    weight: 0, // renders as a little tree — representational, not abstract
   },
 
   // ── Sacred shapes ─────────────────────────────────────────────
@@ -209,6 +231,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "double-stroke"],
+    weight: 0.25, // a labelled diagram; kept rare because sacred geometry is part of the project's identity
   },
   metatronsCube: {
     tier: 1,
@@ -236,6 +259,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor", "fill-only"],
+    weight: 0.4, // near-identical to flowerOfLife; three circle-clusters is one look in three slots
   },
   vesicaPiscis: {
     tier: 2,
@@ -254,6 +278,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed"],
+    weight: 0, // radial spokes read as a bicycle wheel
   },
   eggOfLife: {
     tier: 2,
@@ -263,6 +288,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor"],
+    weight: 0.4, // as above
   },
 
   // ── Procedural shapes ─────────────────────────────────────────
@@ -310,6 +336,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["stroke-only", "incomplete", "dashed"],
+    weight: 0, // reads as a cartoon sun/flower, not the fine guilloche it suggests
   },
   waveRing: {
     tier: 2,
@@ -319,6 +346,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed", "incomplete"],
+    weight: 0, // concentric rosette — another flower
   },
   rose: {
     tier: 1,
@@ -328,6 +356,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["stroke-only", "fill-only", "watercolor"],
+    weight: 0, // a flower; petal forms read as decoration rather than structure
   },
 
   // ── New procedural shapes ─────────────────────────────────────
@@ -384,6 +413,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["ink-bleed", "drip", "fill-only", "watercolor"],
+    weight: 0, // a comic-book starburst; nothing about it reads as ink
   },
   geodesicDome: {
     tier: 2,
@@ -421,6 +451,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-only", "stipple"],
+    weight: 0.4, // scatter reads as dirt on the lens as often as intent
   },
   crosshatchPatch: {
     tier: 3,
@@ -430,6 +461,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "hatched", "fabric-weave"],
+    weight: 0, // an ellipse with ruled lines through it; reads as a rendering artifact
   },
 
   // ── Noise-field organic forms (no fixed silhouette) ───────────
@@ -507,7 +539,12 @@ export function buildShapePalette(
   shapeNames: string[],
   archetypeName: string,
 ): ShapePalette {
-  const available = shapeNames.filter((s) => SHAPE_PROFILES[s]);
+  // Weight 0 drops out here, which covers every downstream pool at once —
+  // primary, supporting, accents, affinity spill-in, and the hero pool
+  // (which is drawn from the finished palette).
+  const available = shapeNames.filter(
+    (s) => SHAPE_PROFILES[s] && (SHAPE_PROFILES[s].weight ?? 1) > 0,
+  );
 
   // Pick a seed shape — tier 1 shapes that are hero candidates
   const heroPool = available.filter(
@@ -784,6 +821,22 @@ export function buildShapePalette(
  * Primary: ~60%, Supporting: ~30%, Accent: ~10%.
  * Also respects size constraints from the shape profile.
  */
+/**
+ * Pick from a candidate list in proportion to each shape's weight.
+ * Consumes exactly one rng() call, same as the uniform pick it replaces,
+ * so the deterministic stream length is unchanged.
+ */
+function pickWeighted(candidates: string[], rng: () => number): string {
+  let total = 0;
+  for (const c of candidates) total += SHAPE_PROFILES[c]?.weight ?? 1;
+  let r = rng() * total;
+  for (const c of candidates) {
+    r -= SHAPE_PROFILES[c]?.weight ?? 1;
+    if (r <= 0) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
 export function pickShapeFromPalette(
   palette: ShapePalette,
   rng: () => number,
@@ -817,17 +870,17 @@ export function pickShapeFromPalette(
 
   const roll = rng();
   if (roll < 0.6 && validPrimary.length > 0) {
-    return validPrimary[Math.floor(rng() * validPrimary.length)];
+    return pickWeighted(validPrimary, rng);
   }
   if (roll < 0.9 && validSupporting.length > 0) {
-    return validSupporting[Math.floor(rng() * validSupporting.length)];
+    return pickWeighted(validSupporting, rng);
   }
   if (validAccents.length > 0) {
-    return validAccents[Math.floor(rng() * validAccents.length)];
+    return pickWeighted(validAccents, rng);
   }
   // Fallback: any valid primary or supporting
   const fallback = [...validPrimary, ...validSupporting];
-  if (fallback.length > 0) return fallback[Math.floor(rng() * fallback.length)];
+  if (fallback.length > 0) return pickWeighted(fallback, rng);
   // Ultimate fallback
   return palette.primary[0] || "circle";
 }
