@@ -23,28 +23,53 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Verify deploy credentials
+        env:
+          PAT: ${{ secrets.WWW_DEPLOY_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::error::WWW_DEPLOY_PAT is not set on this repository."
+            exit 1
+          fi
+          CODE=$(curl -so /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/gfargo/git-hash-art-www)
+          case "$CODE" in
+            200) echo "credentials OK" ;;
+            401) echo "::error::WWW_DEPLOY_PAT is invalid or expired (401). Personal access tokens expire; issue a new one with repo access to gfargo/git-hash-art-www and update the secret." ; exit 1 ;;
+            403) echo "::error::WWW_DEPLOY_PAT lacks access to gfargo/git-hash-art-www (403). Check the token's repository scope." ; exit 1 ;;
+            404) echo "::error::gfargo/git-hash-art-www not visible to this token (404) — wrong repository name, or the token has no access." ; exit 1 ;;
+            *)   echo "::error::Unexpected response $CODE from the GitHub API while validating WWW_DEPLOY_PAT." ; exit 1 ;;
+          esac
+
       - name: Clone git-hash-art-www
         uses: actions/checkout@v4
         with:
-          repository: gfargo/v0-git-hash-art-www
+          repository: gfargo/git-hash-art-www
           token: ${{ secrets.WWW_DEPLOY_PAT }}
           path: www
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
+      # git-hash-art-www's pnpm-workspace.yaml is the pnpm 10 settings-only
+      # form (allowBuilds / minimumReleaseAgeExclude, no `packages:` key).
+      # pnpm 9 treats any pnpm-workspace.yaml as a workspace definition and
+      # rejects it with "packages field missing or empty" — reproduced
+      # locally against both majors.
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
           run_install: false
 
       - name: Update git-hash-art dependency
         working-directory: www
         run: |
-          pnpm install git-hash-art@${{ steps.version.outputs.version }}
+          pnpm add git-hash-art@${{ steps.version.outputs.version }}
 
       - name: Commit and push
         working-directory: www
