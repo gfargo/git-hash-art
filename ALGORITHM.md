@@ -306,6 +306,19 @@ see **Selection Weight** below.
 | Procedural (18) | blob, ngon, lissajous, superellipse, ~~spirograph~~, ~~waveRing~~, ~~rose~~, shardField, voronoiCell, crescent, tendril, cloudForm, ~~inkSplat~~, geodesicDome, penroseTile, reuleauxTriangle, dotCluster, ~~crosshatchPatch~~ |
 | Organic (2) | noiseForm, contourField — **no fixed silhouette**: each draw contours a hash-seeded simplex noise field via marching squares, producing genuinely novel island/cell outlines (with occasional satellite islets); contourField adds nested topographic rings |
 
+### The Sharp-Shape Guarantee
+
+Weights can only redistribute *within* a palette. The affinity graph decides
+what is a candidate at all, and it clusters by roundness — `circle`'s
+affinities are `blob`, `hexagon`, `flowerOfLife`, `seedOfLife`, every one of
+them round. A round seed therefore yields a primary set with no straight edge
+or sharp corner anywhere, and no amount of weighting fixes it.
+
+`buildShapePalette` now guarantees at least one sharp-cornered form in every
+primary set. With the icon damping this holds round-family share roughly flat
+(48% → 52%) while icon share falls 27% → 18%; without it, the damping alone
+pushed round share to 59%.
+
 ### Selection Weight
 
 Alongside `tier`, each profile carries an optional `weight` (default 1) that
@@ -317,6 +330,23 @@ Weight 0 removes a shape from palette construction entirely — filtered once in
 `buildShapePalette`, which covers primary, supporting, accent, affinity
 spill-in and the hero pool in a single place. The draw function stays in the
 registry and remains reachable through the custom-shapes API.
+
+Weights fall into three groups:
+
+- **0 — clip art.** Pictures of things (a heart, a little tree) and cartoon
+  marks (a sparkle, a comic starburst). Ten shapes.
+- **Damped icons.** Mandalas, sacred geometry and wireframe solids aren't clip
+  art, but they have a strong recognisable silhouette and crisp internal
+  detail, so they read as stamps pasted onto a scene rather than marks
+  belonging to it. Twelve shapes damped to 0.4–0.7.
+- **Boosted texturals.** `shardField`, `voronoiCell`, `tendril` and
+  `lissajous` were each under 0.4% of draws despite having no recognisable
+  silhouette to tire of. Raised to absorb the freed share.
+
+That last group exists because of a measured side effect: damping the icons
+alone pushed all the freed weight onto `circle` and `hexagon`, taking
+round-family share from 48% to 59%. Trading a clip-art feel for a
+soap-bubble one is not a win.
 
 The translucent pipeline camouflages a lot: shapes overlap into a haze, so a
 weak silhouette is rarely read on its own. It still tells in aggregate — a
