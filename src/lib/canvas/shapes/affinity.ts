@@ -28,6 +28,22 @@ export interface ShapeProfile {
   heroCandidate: boolean;
   /** Best render styles for this shape */
   bestStyles: string[];
+  /**
+   * Relative selection frequency. Defaults to 1.
+   *
+   * A weight of 0 removes the shape from palette construction entirely
+   * while leaving its draw function available to the custom-shapes API.
+   *
+   * The translucent pipeline camouflages a lot: individual shapes overlap
+   * into a haze, so a weak silhouette rarely gets read on its own. It still
+   * shows up in aggregate — a run of literal objects (a heart, a little
+   * tree) or cartoon sparkles makes the whole corpus feel like clip art
+   * rather than something computed. Weight is the dial for that, kept
+   * separate from `tier` because tier is about *where a shape works*
+   * (size, context) and weight is about *how often it should appear at
+   * all*.
+   */
+  weight?: number;
 }
 
 export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
@@ -40,6 +56,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-only", "watercolor", "fill-and-stroke", "hand-drawn"],
+    weight: 0.75, // a neutral primitive, but it was 14% of draws on its own
   },
   square: {
     tier: 2,
@@ -49,6 +66,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "stroke-only", "hatched"],
+    weight: 1.2, // as above
   },
   triangle: {
     tier: 1,
@@ -58,6 +76,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "fill-only", "watercolor", "hand-drawn"],
+    weight: 1.2, // as above
   },
   hexagon: {
     tier: 1,
@@ -73,6 +92,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-only", "fill-and-stroke", "watercolor"],
+    weight: 0.75, // reads as round at working sizes and compounded the circle share
   },
   star: {
     tier: 2,
@@ -82,6 +102,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "stroke-only", "dashed"],
+    weight: 0.3, // the classic five-point star is the most generic mark available
   },
   "jacked-star": {
     tier: 3,
@@ -91,6 +112,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed"],
+    weight: 0, // sparkle sticker
   },
   heart: {
     tier: 3,
@@ -100,6 +122,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-only", "watercolor"],
+    weight: 0, // a literal object, and the only overtly sentimental mark in the set
   },
   diamond: {
     tier: 2,
@@ -109,6 +132,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "fill-only", "double-stroke"],
+    weight: 1.2, // as above
   },
   cube: {
     tier: 3,
@@ -118,6 +142,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "basic",
     heroCandidate: false,
     bestStyles: ["stroke-only", "fill-and-stroke"],
+    weight: 0.3, // reads as a plain square at most sizes, duplicating `square`
   },
 
   // ── Complex shapes ────────────────────────────────────────────
@@ -129,6 +154,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: false,
     bestStyles: ["stroke-only", "double-stroke", "dashed"],
+    weight: 0.5, // wireframe solid; its precision detaches it from softer neighbours
   },
   fibonacciSpiral: {
     tier: 1,
@@ -138,6 +164,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "incomplete", "watercolor"],
+    weight: 0.5, // immediately legible as a shell/spiral symbol
   },
   islamicPattern: {
     tier: 2,
@@ -147,6 +174,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "dashed", "hatched"],
+    weight: 0.55, // a pattern swatch; reads as fill, not form
   },
   celticKnot: {
     tier: 2,
@@ -156,6 +184,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "double-stroke"],
+    weight: 0.5, // the lattice rarely resolves as a knot at working sizes
   },
   merkaba: {
     tier: 1,
@@ -165,6 +194,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "fill-and-stroke", "double-stroke"],
+    weight: 0.45, // a distinct icon; at 6% of draws it turned up in most images
   },
   mandala: {
     tier: 2,
@@ -174,6 +204,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "dashed", "incomplete"],
+    weight: 0.45, // reads as an applied ornament rather than part of the scene
   },
   fractal: {
     tier: 2,
@@ -183,6 +214,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "complex",
     heroCandidate: true,
     bestStyles: ["stroke-only", "incomplete"],
+    weight: 0, // renders as a little tree — representational, not abstract
   },
 
   // ── Sacred shapes ─────────────────────────────────────────────
@@ -200,6 +232,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor", "incomplete"],
+    weight: 0.4, // the single most recognisable motif in the set, and at 7% of all draws it was defining the corpus
   },
   treeOfLife: {
     tier: 2,
@@ -209,6 +242,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "double-stroke"],
+    weight: 0.25, // a labelled diagram; kept rare because sacred geometry is part of the project's identity
   },
   metatronsCube: {
     tier: 1,
@@ -218,6 +252,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "dashed", "incomplete"],
+    weight: 0.4, // crisp internal linework reads at a different resolution from everything around it
   },
   sriYantra: {
     tier: 2,
@@ -227,6 +262,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "fill-and-stroke", "double-stroke"],
+    weight: 0.45, // same — a symbol before it is a mark
   },
   seedOfLife: {
     tier: 1,
@@ -236,6 +272,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor", "fill-only"],
+    weight: 0.4, // near-identical to flowerOfLife; three circle-clusters is one look in three slots
   },
   vesicaPiscis: {
     tier: 2,
@@ -245,6 +282,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: false,
     bestStyles: ["stroke-only", "watercolor"],
+    weight: 0.6, // simple enough to survive, but still an emblem
   },
   torus: {
     tier: 3,
@@ -254,6 +292,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed"],
+    weight: 0, // radial spokes read as a bicycle wheel
   },
   eggOfLife: {
     tier: 2,
@@ -263,6 +302,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "sacred",
     heroCandidate: true,
     bestStyles: ["stroke-only", "watercolor"],
+    weight: 0.4, // as above
   },
 
   // ── Procedural shapes ─────────────────────────────────────────
@@ -274,6 +314,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-only", "watercolor", "ink-bleed", "hand-drawn"],
+    weight: 0.85, // keeps its role as the soft mass, slightly damped
   },
   ngon: {
     tier: 2,
@@ -283,6 +324,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "fill-only", "hatched"],
+    weight: 1.3, // straight edges without being a symbol
   },
   lissajous: {
     tier: 2,
@@ -292,6 +334,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "incomplete", "dashed"],
+    weight: 1.5, // pure curve, reads as computed rather than drawn
   },
   superellipse: {
     tier: 1,
@@ -310,6 +353,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["stroke-only", "incomplete", "dashed"],
+    weight: 0, // reads as a cartoon sun/flower, not the fine guilloche it suggests
   },
   waveRing: {
     tier: 2,
@@ -319,6 +363,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed", "incomplete"],
+    weight: 0, // concentric rosette — another flower
   },
   rose: {
     tier: 1,
@@ -328,6 +373,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["stroke-only", "fill-only", "watercolor"],
+    weight: 0, // a flower; petal forms read as decoration rather than structure
   },
 
   // ── New procedural shapes ─────────────────────────────────────
@@ -339,6 +385,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "stroke-only", "fill-only"],
+    weight: 1.6, // abstract and textural, and was almost never appearing
   },
   voronoiCell: {
     tier: 1,
@@ -348,6 +395,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "fill-only", "watercolor", "marble-vein"],
+    weight: 1.6, // as above — no recognisable silhouette to tire of
   },
   crescent: {
     tier: 1,
@@ -357,6 +405,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    weight: 0.7, // moon-shaped; distinctive but abstract enough to keep
   },
   tendril: {
     tier: 2,
@@ -366,6 +415,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-only", "watercolor", "fill-and-stroke"],
+    weight: 1.5, // directional mark; adds line against all the mass
   },
   cloudForm: {
     tier: 1,
@@ -384,6 +434,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["ink-bleed", "drip", "fill-only", "watercolor"],
+    weight: 0, // a comic-book starburst; nothing about it reads as ink
   },
   geodesicDome: {
     tier: 2,
@@ -394,6 +445,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "dashed", "double-stroke"],
+    weight: 0.5, // as above
   },
   penroseTile: {
     tier: 2,
@@ -403,6 +455,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-and-stroke", "fill-only", "double-stroke"],
+    weight: 0.7, // mild — the silhouette is abstract enough to carry
   },
   reuleauxTriangle: {
     tier: 1,
@@ -412,6 +465,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["fill-and-stroke", "fill-only", "watercolor"],
+    weight: 1.2, // angular relief from the round families
   },
   dotCluster: {
     tier: 3,
@@ -421,6 +475,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["fill-only", "stipple"],
+    weight: 0.4, // scatter reads as dirt on the lens as often as intent
   },
   crosshatchPatch: {
     tier: 3,
@@ -430,6 +485,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "hatched", "fabric-weave"],
+    weight: 0, // an ellipse with ruled lines through it; reads as a rendering artifact
   },
 
   // ── Noise-field organic forms (no fixed silhouette) ───────────
@@ -441,6 +497,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: true,
     bestStyles: ["fill-only", "watercolor", "ink-bleed", "hand-drawn"],
+    weight: 1.3, // as above
   },
   contourField: {
     tier: 2,
@@ -450,6 +507,7 @@ export const SHAPE_PROFILES: Record<string, ShapeProfile> = {
     category: "procedural",
     heroCandidate: false,
     bestStyles: ["stroke-only", "incomplete", "fill-and-stroke"],
+    weight: 1.4, // noise-contoured, so it never repeats a form
   },
 };
 
@@ -507,7 +565,12 @@ export function buildShapePalette(
   shapeNames: string[],
   archetypeName: string,
 ): ShapePalette {
-  const available = shapeNames.filter((s) => SHAPE_PROFILES[s]);
+  // Weight 0 drops out here, which covers every downstream pool at once —
+  // primary, supporting, accents, affinity spill-in, and the hero pool
+  // (which is drawn from the finished palette).
+  const available = shapeNames.filter(
+    (s) => SHAPE_PROFILES[s] && (SHAPE_PROFILES[s].weight ?? 1) > 0,
+  );
 
   // Pick a seed shape — tier 1 shapes that are hero candidates
   const heroPool = available.filter(
@@ -525,6 +588,22 @@ export function buildShapePalette(
     .filter((s) => available.includes(s))
     .filter((s) => SHAPE_PROFILES[s].tier <= 2);
   const primary = [...new Set(primaryCandidates)].slice(0, 5);
+
+  // Weights can only redistribute within a palette; the affinity graph
+  // decides what is a candidate at all, and it clusters by roundness —
+  // circle's affinities are blob, hexagon, flowerOfLife, seedOfLife, every
+  // one of them round. So a round seed yields a primary set with no
+  // straight edge or sharp corner anywhere, and no amount of weighting
+  // fixes it. Damping the icon shapes made this worse, not better: the
+  // freed share went straight to circle and hexagon. Guarantee one
+  // sharp-cornered form for silhouette contrast.
+  const SHARP = ["triangle", "square", "diamond", "merkaba", "cube", "star"];
+  if (primary.length > 0 && !primary.some((s2) => SHARP.includes(s2))) {
+    const pool = SHARP.filter((s2) => available.includes(s2));
+    if (pool.length > 0) {
+      primary[primary.length - 1] = pool[Math.floor(rng() * pool.length)];
+    }
+  }
 
   // Supporting: affinities of affinities, plus same-category shapes
   const supportingSet = new Set<string>();
@@ -784,6 +863,22 @@ export function buildShapePalette(
  * Primary: ~60%, Supporting: ~30%, Accent: ~10%.
  * Also respects size constraints from the shape profile.
  */
+/**
+ * Pick from a candidate list in proportion to each shape's weight.
+ * Consumes exactly one rng() call, same as the uniform pick it replaces,
+ * so the deterministic stream length is unchanged.
+ */
+function pickWeighted(candidates: string[], rng: () => number): string {
+  let total = 0;
+  for (const c of candidates) total += SHAPE_PROFILES[c]?.weight ?? 1;
+  let r = rng() * total;
+  for (const c of candidates) {
+    r -= SHAPE_PROFILES[c]?.weight ?? 1;
+    if (r <= 0) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
 export function pickShapeFromPalette(
   palette: ShapePalette,
   rng: () => number,
@@ -817,17 +912,17 @@ export function pickShapeFromPalette(
 
   const roll = rng();
   if (roll < 0.6 && validPrimary.length > 0) {
-    return validPrimary[Math.floor(rng() * validPrimary.length)];
+    return pickWeighted(validPrimary, rng);
   }
   if (roll < 0.9 && validSupporting.length > 0) {
-    return validSupporting[Math.floor(rng() * validSupporting.length)];
+    return pickWeighted(validSupporting, rng);
   }
   if (validAccents.length > 0) {
-    return validAccents[Math.floor(rng() * validAccents.length)];
+    return pickWeighted(validAccents, rng);
   }
   // Fallback: any valid primary or supporting
   const fallback = [...validPrimary, ...validSupporting];
-  if (fallback.length > 0) return fallback[Math.floor(rng() * fallback.length)];
+  if (fallback.length > 0) return pickWeighted(fallback, rng);
   // Ultimate fallback
   return palette.primary[0] || "circle";
 }
