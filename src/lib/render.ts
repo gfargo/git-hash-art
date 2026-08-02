@@ -30,8 +30,12 @@ import {
   shiftTemperature,
   luminance,
   enforceContrast,
+  contrastFloorFor,
   adjustSaturation,
   adjustLightness,
+  hueRotate,
+  toGroundValue,
+  paletteHueSpan,
   buildColorHierarchy,
   pickHierarchyColor,
   pickColorGrade,
@@ -187,7 +191,12 @@ function getPositionalColor(
     Math.hypot(x - ax, y - ay) /
     Math.hypot(Math.max(ax, width - ax), Math.max(ay, height - ay));
   if (distFromAnchor < 0.35) {
-    return jitterColorHSL(hierarchy.dominant, rng, 7, 0.07);
+    // The core is dominant-led, but always-dominant made every image's
+    // focal mass a single flat hue. A minority of accent marks in the
+    // core is what gives the centre something to play against.
+    return rng() < 0.12
+      ? jitterColorHSL(hierarchy.accent, rng, 7, 0.07)
+      : jitterColorHSL(hierarchy.dominant, rng, 7, 0.07);
   } else if (distFromAnchor < 0.7) {
     return jitterColorHSL(pickHierarchyColor(hierarchy, rng), rng, 6, 0.06);
   } else {
@@ -311,6 +320,57 @@ function localDensity(
   return count;
 }
 
+// ── Background value contract ───────────────────────────────────────
+// A background style declares the *value band* it paints in; the palette
+// mode only supplies the *hue*. Resolving the two here — before anything
+// is drawn — guarantees `bgLum` describes the pixels actually on canvas.
+//
+// Previously the light styles painted hardcoded off-whites while `bgLum`
+// was computed from the palette's (darkened) background colors. Every
+// consumer of `bgLum` then inverted: `enforceContrast` lightened
+// foregrounds that were already sitting on white, `pickBlendMode` chose
+// screen/lighter on a near-white ground, and the torn-paper deckle drew
+// a saturated frame instead of paper. That is what produced washed-out
+// and hard-framed images.
+
+const LIGHT_BG_STYLES = new Set<BackgroundStyle>([
+  "radial-light",
+  "solid-light",
+]);
+const DARK_BG_STYLES = new Set<BackgroundStyle>(["radial-dark", "solid-dark"]);
+
+/**
+ * Force the palette's background colors into the value band their
+ * background style actually paints. Returns the exact two stops
+ * `drawBackground` will use, so `bgLum` can be derived from them.
+ */
+function resolveBackgroundColors(
+  style: BackgroundStyle,
+  bgStart: string,
+  bgEnd: string,
+  rng: () => number,
+): [string, string] {
+  if (LIGHT_BG_STYLES.has(style)) {
+    // Tinted paper: the palette hue survives at very low saturation, so
+    // light grounds vary per hash instead of being one hardcoded off-white.
+    const tint = 0.05 + rng() * 0.07;
+    return [
+      toGroundValue(bgStart, 0.94 - rng() * 0.03, tint),
+      toGroundValue(bgEnd, 0.87 - rng() * 0.04, tint + 0.03),
+    ];
+  }
+  if (DARK_BG_STYLES.has(style)) {
+    // Some palette modes (high-contrast) hand back light background
+    // colors. A `solid-dark` archetype must still get a dark ground or
+    // it loses the personality the archetype exists to express.
+    return [
+      luminance(bgStart) > 0.2 ? toGroundValue(bgStart, 0.09, 0.4) : bgStart,
+      luminance(bgEnd) > 0.2 ? toGroundValue(bgEnd, 0.05, 0.35) : bgEnd,
+    ];
+  }
+  return [bgStart, bgEnd];
+}
+
 // ── Helper: draw background based on archetype style ────────────────
 
 function drawBackground(
@@ -329,8 +389,8 @@ function drawBackground(
   switch (style) {
     case "radial-light": {
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, bgRadius);
-      grad.addColorStop(0, "#f0ece4");
-      grad.addColorStop(1, bgStart);
+      grad.addColorStop(0, bgStart);
+      grad.addColorStop(1, bgEnd);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, width, height);
       break;
@@ -358,7 +418,7 @@ function drawBackground(
       break;
     }
     case "solid-light": {
-      ctx.fillStyle = "#f5f2eb";
+      ctx.fillStyle = bgStart;
       ctx.fillRect(0, 0, width, height);
       break;
     }
@@ -593,15 +653,43 @@ export function renderHashArt(
 
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColorsByMode(archetype.paletteMode);
-  const [bgStart, bgEnd] = colorScheme.getBackgroundColorsByMode(
+  const [paletteBgStart, paletteBgEnd] = colorScheme.getBackgroundColorsByMode(
     archetype.paletteMode,
+  );
+  // Reconcile the palette's background hue with the value band the
+  // archetype's background style actually paints (see the contract above).
+  const [bgStart, bgEnd] = resolveBackgroundColors(
+    archetype.backgroundStyle,
+    paletteBgStart,
+    paletteBgEnd,
+    rng,
   );
   const tempMode = colorScheme.getTemperatureMode();
   const fgTempTarget: "warm" | "cool" | null =
     tempMode === "warm-bg" ? "cool" : tempMode === "cool-bg" ? "warm" : null;
 
   // ── 0b. Color hierarchy — dominant/secondary/accent weighting ──
-  const colorHierarchy = buildColorHierarchy(colors, rng);
+  // Palette modes that deliberately live on one hue keep it; every other
+  // mode is guaranteed a genuinely distant accent. `harmonious` draws
+  // from color-scheme's `mono` and `analogic` types on ~2/5 of hashes,
+  // which collapses dominant/secondary/accent onto the same hue — the
+  // image then reads as a single wash regardless of how the hierarchy is
+  // weighted downstream.
+  const MONO_BY_DESIGN = new Set(["monochrome", "earth"]);
+  let colorHierarchy = buildColorHierarchy(colors, rng);
+  const hueSpan = paletteHueSpan(colors);
+  if (!MONO_BY_DESIGN.has(archetype.paletteMode) && hueSpan < 40) {
+    // Split-complementary accent: far enough to read as a different
+    // colour, off the exact complement so it stays harmonious.
+    const offset = 150 + rng() * 60;
+    colorHierarchy = {
+      ...colorHierarchy,
+      accent: adjustSaturation(
+        hueRotate(colorHierarchy.dominant, offset),
+        0.18,
+      ),
+    };
+  }
 
   // ── 0c. Shape palette — curated shapes that work well together ──
   // Merge custom shapes into a combined registry
@@ -654,7 +742,25 @@ export function renderHashArt(
 
   const scaleFactor = Math.min(width, height) / 1024;
   const adjustedMinSize = minShapeSize * scaleFactor;
-  const adjustedMaxSize = maxShapeSize * scaleFactor;
+  // No single shape may claim the whole frame. Past roughly 60% of the
+  // short edge a shape stops reading as an element in a composition and
+  // becomes the ground — and with symmetry mirroring active, two of them
+  // tile over the entire canvas with no detail at any other scale.
+  // bold-graphic (max 800) and watercolor-wash (max 700) both exceeded
+  // this on a 1024 reference.
+  const adjustedMaxSize = Math.min(
+    maxShapeSize * scaleFactor,
+    Math.min(width, height) * 0.62,
+  );
+
+  // Share of shapes allowed below the archetype's size floor, so that
+  // every image has a small-detail class. Only archetypes whose floor is
+  // genuinely coarse need this — bold-graphic, minimal-spacious and
+  // watercolor-wash all start above 0.12 of the canvas, so every shape
+  // they place is the same size class. Applying it more widely just
+  // removes painted area from archetypes that could already draw small.
+  const minSizeFraction = adjustedMinSize / Math.min(width, height);
+  const detailMarkChance = minSizeFraction > 0.12 ? 0.25 : 0;
 
   const cx = width / 2;
   const cy = height / 2;
@@ -993,6 +1099,46 @@ export function renderHashArt(
     return fieldAngleBase + fbmNoise(nx, ny) * Math.PI;
   }
 
+  // ── 4a. Colour zoning — a second hue as a *passage*, not a sprinkle ──
+  // Palettes carry well-separated colours (dominant↔accent is typically
+  // 120-180° apart), but usage collapsed them: hierarchy weighting sends
+  // ~60% of picks to dominant, and the large shapes that dominate an
+  // image's perceived colour are the ones most likely to sit near the
+  // anchor, where placement was dominant-only. The result read as one
+  // flat hue however rich the palette was.
+  //
+  // A low-frequency field splits the canvas into two passages and swaps
+  // which colour leads in each. Big masses on opposite sides of the
+  // image then carry genuinely different hues — the warm/cool division
+  // painters use — while all the existing hierarchy logic still applies.
+  const ZONE_INCOMPATIBLE = new Set(["monochrome", "high-contrast"]);
+  const useColorZones =
+    !ZONE_INCOMPATIBLE.has(archetype.paletteMode) && rng() < 0.68;
+  const zoneAngle = rng() * Math.PI * 2;
+  const zoneDirX = Math.cos(zoneAngle);
+  const zoneDirY = Math.sin(zoneAngle);
+  const zoneThreshold = 0.38 + rng() * 0.24;
+  const zoneDiag = Math.hypot(width, height);
+  // Lead the second passage with whichever of secondary/accent actually
+  // differs in hue from dominant — a "second" colour that sits 10° away
+  // buys nothing.
+  const secondaryIsDistinct =
+    paletteHueSpan([colorHierarchy.dominant, colorHierarchy.secondary]) > 35;
+  const zoneLead = secondaryIsDistinct
+    ? colorHierarchy.secondary
+    : colorHierarchy.accent;
+
+  function inSecondaryZone(x: number, y: number): boolean {
+    if (!useColorZones) return false;
+    // Position along the zone axis, 0..1, with a noise-warped boundary so
+    // the division reads as an organic passage rather than a hard wipe.
+    const t =
+      ((x - cx) * zoneDirX + (y - cy) * zoneDirY) / zoneDiag +
+      0.5 +
+      fbmNoise((x / width) * 1.3, (y / height) * 1.3) * 0.22;
+    return t > zoneThreshold;
+  }
+
   // Noise-based size modulation — shapes in "high noise" areas get scaled
   function noiseSizeModulation(x: number, y: number): number {
     const n = simplexNoise((x / width) * 3, (y / height) * 3);
@@ -1045,7 +1191,12 @@ export function renderHashArt(
         ? heroPool[Math.floor(rng() * heroPool.length)]
         : shapeNames[Math.floor(rng() * shapeNames.length)];
 
-    const heroSize = adjustedMaxSize * (0.8 + rng() * 0.5);
+    // The hero is allowed to overshoot the general size cap — it is meant
+    // to dominate — but not to the point of covering the frame.
+    const heroSize = Math.min(
+      adjustedMaxSize * (0.8 + rng() * 0.5),
+      Math.min(width, height) * 0.72,
+    );
     const heroRotation = rng() * 360;
     // A "dominant focal element" needs to actually dominate — the old
     // 0.15-0.35 fill alpha combined with the ~0.5-0.7 globalAlpha below
@@ -1420,10 +1571,25 @@ export function renderHashArt(
 
       // Power distribution for size — archetype controls the curve
       const sizeT = Math.pow(rng(), archetype.sizePower);
-      const size =
-        (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
-        layerSizeScale *
-        noiseSizeModulation(x, y);
+
+      // ── Scale hierarchy — every composition needs more than one size class ──
+      // Archetypes with a high `minShapeSize` (bold-graphic starts at 200
+      // of a 1024 reference, minimal-spacious at 150) cannot produce a
+      // small mark at all, so their images are a handful of near-identical
+      // giants that fill the frame with nothing to read them against —
+      // it looks like a bug rather than a composition. Letting a minority
+      // of shapes drop below the archetype's floor restores the
+      // large/medium/small reading that makes sparse work legible,
+      // without touching the archetype's intended mass.
+      const isDetailMark = detailMarkChance > 0 && rng() < detailMarkChance;
+      const size = isDetailMark
+        ? adjustedMinSize *
+          (0.25 + rng() * 0.3) *
+          layerSizeScale *
+          noiseSizeModulation(x, y)
+        : (adjustedMinSize + sizeT * (adjustedMaxSize - adjustedMinSize)) *
+          layerSizeScale *
+          noiseSizeModulation(x, y);
 
       // Size fraction for affinity-aware shape selection
       const sizeFraction = size / adjustedMaxSize;
@@ -1464,38 +1630,67 @@ export function renderHashArt(
         }
       }
 
-      // Positional color from hierarchy + jitter (using evolved layer palette)
-      let fillBase = getPositionalColor(
-        x,
-        y,
-        width,
-        height,
-        layerHierarchy,
-        rng,
-        anchorX,
-        anchorY,
-      );
-
-      // Desaturate colors on later layers for depth
-      if (atmosphericDesat > 0) {
-        fillBase = desaturate(fillBase, atmosphericDesat);
-      }
-
-      // Temperature contrast: shift foreground shapes opposite to background
-      if (fgTempTarget) {
-        fillBase = shiftTemperature(
-          fillBase,
-          fgTempTarget,
-          0.15 + layerRatio * 0.1,
-        );
-      }
-
-      // ── Value hierarchy by scale — big masses stay quiet, small accents sing ──
       const sizeNorm = Math.min(1, size / adjustedMaxSize);
-      if (sizeNorm > 0.55) {
-        fillBase = desaturate(fillBase, (sizeNorm - 0.55) * 0.55);
-      } else if (sizeNorm < 0.22) {
-        fillBase = adjustSaturation(fillBase, 0.12);
+
+      // ── Accent quota — a protected minority of full-chroma marks ────
+      // The accent wins only ~15% of hierarchy picks, and every one of
+      // those then passes through atmospheric desaturation, scale
+      // desaturation and depth fade. By the time it reaches the canvas
+      // it is indistinguishable from the dominant. Reserving a small set
+      // of small shapes that bypass all the muting is what makes an
+      // accent read as an accent — the ~10% rule from painting.
+      const isAccentMark = sizeNorm < 0.32 && rng() < 0.1;
+
+      // In the secondary passage the lead colour takes over the dominant
+      // role, so the existing positional/hierarchy weighting produces a
+      // region of a different hue rather than isolated marks.
+      const zoneHierarchy = inSecondaryZone(x, y)
+        ? {
+            ...layerHierarchy,
+            dominant: zoneLead,
+            secondary: layerHierarchy.dominant,
+          }
+        : layerHierarchy;
+
+      // Positional color from hierarchy + jitter (using evolved layer palette)
+      let fillBase = isAccentMark
+        ? jitterColorHSL(zoneHierarchy.accent, rng, 5, 0.05)
+        : getPositionalColor(
+            x,
+            y,
+            width,
+            height,
+            zoneHierarchy,
+            rng,
+            anchorX,
+            anchorY,
+          );
+
+      if (isAccentMark) {
+        // Accent marks skip the muting passes entirely and get a chroma
+        // lift so they punctuate the field rather than blend into it.
+        fillBase = adjustSaturation(fillBase, 0.2);
+      } else {
+        // Desaturate colors on later layers for depth
+        if (atmosphericDesat > 0) {
+          fillBase = desaturate(fillBase, atmosphericDesat);
+        }
+
+        // Temperature contrast: shift foreground shapes opposite to background
+        if (fgTempTarget) {
+          fillBase = shiftTemperature(
+            fillBase,
+            fgTempTarget,
+            0.15 + layerRatio * 0.1,
+          );
+        }
+
+        // ── Value hierarchy by scale — big masses stay quiet, small accents sing ──
+        if (sizeNorm > 0.55) {
+          fillBase = desaturate(fillBase, (sizeNorm - 0.55) * 0.55);
+        } else if (sizeNorm < 0.22) {
+          fillBase = adjustSaturation(fillBase, 0.12);
+        }
       }
 
       // Tone-on-tone strokes ~70% of the time — an outline in a shifted
@@ -1504,16 +1699,7 @@ export function renderHashArt(
       const strokeBase =
         rng() < 0.7
           ? adjustLightness(fillBase, bgLum > 0.5 ? -0.18 : 0.18)
-          : pickHierarchyColor(layerHierarchy, rng);
-
-      const fillColor = enforceContrast(
-        jitterColorHSL(fillBase, rng, 6, 0.05),
-        bgLum,
-      );
-      const strokeColor = enforceContrast(
-        jitterColorHSL(strokeBase, rng, 5, 0.04),
-        bgLum,
-      );
+          : pickHierarchyColor(zoneHierarchy, rng);
 
       // Semi-transparent fill — larger shapes quieter, small shapes denser.
       // Light backgrounds get a floor bump so washes don't disappear.
@@ -1521,6 +1707,30 @@ export function renderHashArt(
       let fillAlpha =
         (sizeNorm > 0.55 ? 0.16 + rng() * 0.3 : 0.3 + rng() * 0.42) +
         alphaBoost;
+
+      // A mark's *perceived* contrast is its colour contrast scaled by the
+      // alpha it is painted at: a 30%-alpha wash delivers under a third of
+      // the separation its colour promises. Enforcing contrast on the raw
+      // colour therefore passed shapes that composited to nothing — the
+      // main reason soft archetypes rendered as blank paper. Compensate
+      // the requirement by the alpha, capped so soft archetypes stay soft
+      // rather than turning into ink.
+      const alphaCompensation = Math.min(2.2, 1 / Math.max(0.3, fillAlpha));
+      const markContrast = Math.min(
+        0.5,
+        contrastFloorFor(bgLum) * alphaCompensation,
+      );
+
+      const fillColor = enforceContrast(
+        jitterColorHSL(fillBase, rng, 6, 0.05),
+        bgLum,
+        markContrast,
+      );
+      const strokeColor = enforceContrast(
+        jitterColorHSL(strokeBase, rng, 5, 0.04),
+        bgLum,
+        markContrast,
+      );
       // Large near-black masses on light backgrounds read as glitches —
       // keep dark accents but thin them so they punctuate, not dominate
       if (bgLum > 0.6 && sizeNorm > 0.3 && luminance(fillColor) < 0.12) {

@@ -205,16 +205,52 @@ After generating the raw palette, colors are organized into a **hierarchy** with
 
 `pickHierarchyColor(hierarchy, rng)` rolls against these weights so compositions naturally converge on a dominant tone without being monotonous.
 
+**Guaranteed hue separation.** Palette modes that deliberately live on one hue
+(`monochrome`, `earth`) keep it. For every other mode, if the palette's widest
+hue gap is under 40° the accent is replaced with a split-complementary of the
+dominant (150–210° away, saturation +0.18). `harmonious` draws on
+color-scheme's `mono` and `analogic` types for ~2/5 of hashes, which otherwise
+collapses all three hierarchy roles onto the same hue.
+
+### Color Zoning
+
+Hierarchy weighting alone cannot stop an image reading as a single flat hue:
+60% of picks go to the dominant, and the large shapes that carry an image's
+perceived color are the ones most likely to sit near the composition anchor,
+where placement is dominant-led. Scattered accents do not change that.
+
+So a low-frequency field — a directional split with a noise-warped boundary —
+divides the canvas into two passages, and in the second passage the lead color
+takes over the dominant role. Large masses on opposite sides of the image then
+carry genuinely different hues (the warm/cool division painters use) while all
+the existing hierarchy logic still applies. Active on ~68% of images, skipped
+for `monochrome` and `high-contrast` palettes where it is meaningless.
+
+The passage lead is `secondary` when it differs from dominant by more than 35°
+of hue, otherwise `accent` — a "second" color 10° away buys nothing.
+
+### Accent Quota
+
+The accent wins only ~15% of hierarchy picks, and each of those then passes
+through atmospheric desaturation, scale desaturation and depth fade — by the
+time it reaches the canvas it is indistinguishable from the dominant. A
+protected minority (~10% of shapes below 0.32 size-normal) bypasses all the
+muting passes and takes a +0.2 chroma lift instead. This is the ~10% accent
+rule from painting: accents must be small *and* undiluted.
+
 ### HSL Jitter
 
 Color variation uses **HSL-space jitter** (`jitterColorHSL`) instead of the old RGB approach. This produces perceptually uniform shifts — a ±10° hue rotation and ±8% saturation/lightness shift feels natural, whereas the equivalent RGB jitter could accidentally desaturate or muddy colors.
 
 ### Positional Color
 
-Shapes receive color based on their position relative to the canvas center:
-- **Center (< 35% radius):** biased toward the dominant color
+Shapes receive color based on their position relative to the composition anchor:
+- **Center (< 35% radius):** dominant-led, with a 12% chance of an accent mark so the focal mass has something to play against
 - **Middle (35–70%):** weighted random from the full hierarchy
 - **Edges (> 70%):** biased toward secondary and accent colors
+
+Within the secondary color zone (see **Color Zoning**) the same rules apply to
+a hierarchy whose dominant and secondary roles have been swapped.
 
 This creates a natural color gradient across the composition without explicit gradient code.
 
@@ -224,7 +260,23 @@ The scheme detects whether the background leans warm or cool, then shifts foregr
 
 ### Contrast Enforcement
 
-Every shape color is checked against the background luminance. If the contrast ratio is too low, the color is lightened or darkened to ensure visibility.
+Every shape color is checked against the background luminance and pushed away
+from it if the gap is too small. Three properties make this actually work:
+
+- **Adaptive floor.** A near-white ground hides a mark that the same luminance
+  gap would make legible on a mid ground, so the requirement scales up above
+  bgLum 0.7 (`contrastFloorFor`). A flat floor let pastel archetypes "pass"
+  while still being invisible.
+- **Alpha compensation.** A mark's *perceived* contrast is its color contrast
+  scaled by the alpha it is painted at — a 30%-alpha wash delivers under a
+  third of what its color promises. The requirement is divided by the fill
+  alpha (capped at 2.2×, and the result capped at 0.5) so translucent washes on
+  light grounds still register.
+- **Solved, not nudged.** Lightness and luminance are on different scales, so a
+  single damped step in lightness routinely undershot the luminance target.
+  The correction bisects over lightness (7 iterations, bounds 0.12–0.93 so
+  results stay tinted rather than pure black or white) using a direct
+  HSL→luminance path that avoids allocating a hex string per probe.
 
 ### Color Palette Evolution
 
@@ -304,12 +356,32 @@ The archetype's `backgroundStyle` selects one of 7 modes:
 | Style | Description |
 | ----- | ----------- |
 | radial-dark | Dark radial gradient from center outward (default) |
-| radial-light | Light center (#f0ece4) fading to the palette background |
+| radial-light | Light radial gradient, palette-tinted paper |
 | linear-horizontal | Left-to-right gradient |
 | linear-diagonal | Corner-to-corner gradient with midpoint return |
 | solid-dark | Flat dark fill |
-| solid-light | Flat off-white (#f5f2eb) |
+| solid-light | Flat palette-tinted light fill |
 | multi-stop | 3–4 color gradient using palette colors |
+
+### The Background Value Contract
+
+A background **style** declares the value band it paints in; the palette
+**mode** only supplies the hue. `resolveBackgroundColors` reconciles the two
+before anything is drawn, so the stored background luminance always describes
+the pixels actually on canvas:
+
+- **Light styles** (`radial-light`, `solid-light`) map the palette's background
+  hue to L≈0.87–0.94 at very low saturation — tinted paper that varies per hash
+  rather than one hardcoded off-white.
+- **Dark styles** (`radial-dark`, `solid-dark`) force L≈0.05–0.09 when the
+  palette hands back light colors, so an archetype that asks for a dark ground
+  keeps the personality it exists to express.
+- **Gradient styles** pass through unchanged.
+
+This contract matters because roughly a dozen downstream decisions branch on
+background luminance — contrast enforcement, blend-mode pools, layer opacity
+lift, vignette polarity, and the torn-paper deckle color among them. When the
+declared and painted values disagree, all of them invert at once.
 
 ### Gradient Mesh Overlay
 
@@ -407,7 +479,7 @@ Structures are drawn before the shape layers so they weave through the mid-groun
 When the archetype enables `heroShape` and the RNG roll passes (60% chance), a dominant focal element is drawn at the first focal point:
 
 - Shape is selected from palette hero candidates (Tier 1, `heroCandidate: true`)
-- Size is 80–130% of `adjustedMaxSize`
+- Size is 80–130% of `adjustedMaxSize`, clamped to 72% of the short edge — the hero is meant to dominate, not to cover the frame
 - Style is chosen from the shape's `bestStyles` via its affinity profile
 - Fill uses the dominant hierarchy color; stroke uses the accent
 - Glow radius is 12–32px (scaled)
@@ -444,14 +516,14 @@ For each shape in a layer:
 1. **Position:** Composition mode generates a candidate position, then `applyFocalBias` pulls it toward the nearest focal point
 2. **Void check:** 85% skip chance if inside a void zone
 3. **Density check:** Uses the **spatial hash grid** (see Performance section) for O(1) lookups — if local density exceeds 15% of `shapesPerLayer`, 60% skip chance
-4. **Size:** Power-curve distribution controlled by `archetype.sizePower` — higher values produce more small shapes
+4. **Size:** Power-curve distribution controlled by `archetype.sizePower` — higher values produce more small shapes. Capped at 62% of the short edge: past that a shape stops reading as an element in a composition and becomes the ground (and under symmetry mirroring, two of them tile over the whole canvas). Archetypes whose `minShapeSize` exceeds 12% of the canvas — `bold-graphic`, `minimal-spacious`, `watercolor-wash` — cannot otherwise produce a small mark at all, so 25% of their shapes drop below the archetype floor to restore a large/medium/small reading
 5. **Shape selection:** `pickShapeFromPalette` with size-constraint filtering
 6. **Rotation:** Flow-field angle in flow-field mode (±15° jitter); random otherwise
 7. **Hero avoidance:** Shapes within 1.5× the hero's size orient toward it (rotation blended 40% toward the angle-to-hero)
-8. **Color:** Positional color from hierarchy (zoned around the composition anchor) + HSL jitter, with atmospheric desaturation and temperature contrast applied
+8. **Color:** Positional color from the *zone* hierarchy (see Color Zoning) + HSL jitter, with atmospheric desaturation and temperature contrast applied. ~10% of small shapes are **accent marks** that skip every muting pass and take a chroma lift instead
 8b. **Value hierarchy by scale:** Large shapes (> 55% of max size) are desaturated and get lower fill alpha — quiet masses; small shapes (< 22%) get a saturation boost and denser fill — vivid accents. Very dark fills on light backgrounds are alpha-thinned so ink accents punctuate without reading as glitches
 8c. **Tone-on-tone strokes:** ~70% of strokes are a lightness-shifted version of the fill (darker on light backgrounds, lighter on dark) so outlines read as part of the shape; the remaining 30% pull an independent hierarchy color for deliberate contrast
-9. **Contrast enforcement:** Fill and stroke colors checked against background luminance. Enforcement moves colors toward *tinted* darks/lights (lightness floor 0.24 / ceiling 0.86) — never pure black or white
+9. **Contrast enforcement:** Fill and stroke colors checked against background luminance, with the requirement scaled up for extreme grounds and divided by the shape's fill alpha (see Contrast Enforcement). Enforcement moves colors toward *tinted* darks/lights (lightness bounds 0.12–0.93) — never pure black or white
 10. **Styling:** Affinity-aware render style, optional glow (sacred shapes 45% base chance × archetype multiplier), optional radial gradient fill (30% chance)
 11. **Organic edges:** 15% of `fill-and-stroke` shapes are promoted to `watercolor` style
 12. **Shadow & highlight:** Each shape receives a directional drop shadow and specular highlight based on the consistent light angle (see below)

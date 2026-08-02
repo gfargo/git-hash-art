@@ -8,6 +8,10 @@ Works in both Node.js and browser environments.
 
 - Deterministic output — same hash always produces the same image
 - Hash-driven color palettes — 6 variation modes × 5 scheme types for dramatic palette diversity
+- Color zoning — a low-frequency field splits the canvas into two color passages so large masses carry genuinely different hues
+- Guaranteed accent contrast — degenerate single-hue palettes get a synthesized split-complementary accent, and a protected minority of marks stay at full chroma
+- Alpha-aware contrast enforcement — shape colors are pushed away from the background by enough to survive the transparency they're painted at
+- Scale hierarchy — every composition gets a large/medium/small reading, and no single shape can swallow the frame
 - Per-layer blend modes — `screen`, `multiply`, `overlay`, `soft-light`, and more for painterly depth
 - 6 shape render styles — fill+stroke, wireframe, dashed, double-stroke, watercolor bleed, fill-only
 - 20+ shape types across three categories: basic, complex, and sacred geometry
