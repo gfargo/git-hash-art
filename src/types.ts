@@ -71,7 +71,11 @@ export interface GenerationConfig {
    */
   customShapes?: Record<string, CustomShapeDefinition>;
   /** Internal: collect per-phase timing data when set (not part of public API) */
-  _debugTiming?: { phases: Record<string, number>; shapeCount: number; extraCount: number };
+  _debugTiming?: {
+    phases: Record<string, number>;
+    shapeCount: number;
+    extraCount: number;
+  };
 }
 
 export const DEFAULT_CONFIG: GenerationConfig = {

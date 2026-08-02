@@ -22,15 +22,27 @@ describe("Phase breakdown via _debugTiming", () => {
   for (const { label, hash } of HASHES) {
     it(`${label} at 1024×1024`, () => {
       const canvas = createCanvas(1024, 1024);
-      const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
-      const timing: GenerationConfig["_debugTiming"] = { phases: {}, shapeCount: 0, extraCount: 0 };
-      const config: Partial<GenerationConfig> = { width: 1024, height: 1024, _debugTiming: timing };
+      const ctx = canvas.getContext(
+        "2d",
+      ) as unknown as CanvasRenderingContext2D;
+      const timing: GenerationConfig["_debugTiming"] = {
+        phases: {},
+        shapeCount: 0,
+        extraCount: 0,
+      };
+      const config: Partial<GenerationConfig> = {
+        width: 1024,
+        height: 1024,
+        _debugTiming: timing,
+      };
 
       const start = performance.now();
       renderHashArt(ctx, hash, config);
       const total = performance.now() - start;
 
-      console.log(`\n  ═══ ${label} (${total.toFixed(0)}ms total, ${timing!.shapeCount} shapes, ${timing!.extraCount} extras) ═══`);
+      console.log(
+        `\n  ═══ ${label} (${total.toFixed(0)}ms total, ${timing!.shapeCount} shapes, ${timing!.extraCount} extras) ═══`,
+      );
       const phases = timing!.phases;
       // Sort by cost descending
       const sorted = Object.entries(phases).sort((a, b) => b[1] - a[1]);
