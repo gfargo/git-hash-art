@@ -9,7 +9,7 @@ Hash String
   │
   ├─► Seed (mulberry32 PRNG)
   │
-  ├─► Archetype Selection (1 of 17 visual personalities, ~15% chance of blending two)
+  ├─► Archetype Selection (1 of 19 visual personalities, ~15% chance of blending two)
   │
   ├─► Color Scheme (palette mode + temperature mode + contrast enforcement)
   │   └─► Color Hierarchy (dominant 60% / secondary 25% / accent 15%)
@@ -105,7 +105,7 @@ The noise field drives two systems:
 
 ## 2. Archetype System
 
-Before any rendering begins, the hash deterministically selects one of 17 **visual archetypes** — fundamentally different rendering personalities that override key parameters. This is the primary mechanism for visual diversity: two hashes that select different archetypes will look like they came from entirely different generators.
+Before any rendering begins, the hash deterministically selects one of 19 **visual archetypes** — fundamentally different rendering personalities that override key parameters. This is the primary mechanism for visual diversity: two hashes that select different archetypes will look like they came from entirely different generators.
 
 Each archetype controls:
 
@@ -122,9 +122,10 @@ Each archetype controls:
 | `heroShape` | Whether to draw a dominant focal shape |
 | `glowMultiplier` | Glow probability scaling (0 = none, 3 = heavy) |
 | `sizePower` | Size distribution curve (0.5 = uniform, 2.8 = many tiny) |
+| `opaqueForeground` | Shapes occlude rather than blend (cut-paper figure/ground) |
 | `preferredCompositions` | Weighted composition mode selection (e.g., radial, golden-spiral) |
 
-### The 17 Archetypes
+### The 19 Archetypes
 
 | Archetype | Grid | Layers | Background | Palette | Key Styles | Flow | Hero | Character |
 | --------- | ---- | ------ | ---------- | ------- | ---------- | ---- | ---- | --------- |
@@ -139,7 +140,9 @@ Each archetype controls:
 | cosmic | 8 | 5 | radial-dark | neon | fill-only, watercolor | 3× | yes | Deep space, many tiny shapes, glow |
 | watercolor-wash | 3 | 3 | radial-light | harmonious | watercolor, fill-only, incomplete | 0.5× | no | Soft washes, large shapes, low opacity |
 | op-art | 8 | 2 | solid-light | high-contrast | fill-and-stroke, stroke-only, dashed | 0× | no | Dense, high-contrast, uniform sizes |
-| collage | 4 | 3 | solid-light | duotone | fill-and-stroke, fill-only, double-stroke | 0× | yes | Overlapping, medium-large shapes |
+| collage | 3 | 2 | solid-light | duotone | fill-and-stroke, fill-only, double-stroke | 0× | yes | **Opaque.** Overlapping cut shapes |
+| paper-cut | 3 | 2 | solid-light | limited-palette | fill-only, fill-and-stroke, hand-drawn | 0× | yes | **Opaque.** Torn sheets, three flat colours |
+| hard-edge | 3 | 2 | solid-light | split-complementary | fill-only, fill-and-stroke | 0× | yes | **Opaque.** Few large flat planes, no texture |
 | classic | 5 | 4 | radial-dark | harmonious | fill-and-stroke, watercolor | 1× | yes | Balanced, the original look |
 | shattered-glass | 8 | 3 | solid-dark | high-contrast | fill-and-stroke, stroke-only, fill-only | 0× | no | Angular fragments, sharp edges, mosaic-like |
 | botanical | 4 | 4 | radial-light | earth | watercolor, fill-only, incomplete | 3× | yes | Organic tendrils, flowing forms, natural tones |
@@ -155,6 +158,33 @@ Each archetype controls:
 **stipple-portrait** — Extremely dense (grid 9) with very small shapes (5–120px) and a steep size power curve (2.8) producing many tiny dots. Monochrome palette with stipple and hatched styles creates a pointillist texture. No flow lines or hero shape.
 
 **celestial** — Boosts sacred geometry and cosmic shapes (crescent, geodesicDome, mandala, flowerOfLife, spirograph, fibonacciSpiral). Neon palette on dark background with heavy glow (2.5×) and deep layering (5 layers) creates a starfield-like composition with luminous geometric forms.
+
+### Opaque Archetypes
+
+`collage`, `paper-cut` and `hard-edge` set `opaqueForeground`, which switches
+the pipeline from translucent washes to crisp figure/ground. Every other
+archetype tops out around 0.7 effective alpha, so no shape ever fully hides
+another and the image reads as haze at any density; these three get depth from
+occlusion order and cast shadows instead.
+
+The flag has to reach everywhere the pipeline assumes it can see through a
+shape, or the transparency leaks back in one pass at a time:
+
+| Stage | Translucent | Opaque |
+| ----- | ----------- | ------ |
+| Fill alpha | 0.16–0.72 by scale | 0.96–1.0 |
+| Layer alpha / depth fade | atmospheric perspective | disabled (alpha 1) |
+| Blend mode | multiply / screen pools | always `source-over` |
+| Render style | all 17 | `fill-and-stroke`, `fill-only`, `hand-drawn` only |
+| Gradient fill | ~30% | never |
+| Glazing | ~20% | skipped |
+| Echo / nesting / constellation alpha | 0.4–0.7 × layer | 1 |
+| Shadow throw | 0.02 × size | 0.055 × size, 0.2 alpha |
+| Fill colour | per-shape HSL jitter | snapped to the paper stock |
+
+Shape counts are also lower for these three (`gridSize` 3, two layers). Opaque
+planes don't average out, so the same count that reads as rich haze reads as
+clutter.
 
 ### Archetype Blending
 
@@ -211,6 +241,20 @@ hue gap is under 40° the accent is replaced with a split-complementary of the
 dominant (150–210° away, saturation +0.18). `harmonious` draws on
 color-scheme's `mono` and `analogic` types for ~2/5 of hashes, which otherwise
 collapses all three hierarchy roles onto the same hue.
+
+### Paper Stock (opaque archetypes)
+
+Translucent work can afford per-shape HSL jitter: the washes average out and
+the variation reads as depth. Opaque planes don't average — every shape keeps
+its exact colour, so jitter yields dozens of slightly-different near-identical
+flats and the image turns to mush.
+
+Opaque archetypes therefore draw from a **paper stock**: six flat sheets
+derived from the hierarchy's dominant/secondary/accent, spread across
+deliberately separated lightness steps so adjacent planes divide by *value* and
+not only by hue. Re-using the same colour across several shapes is what makes
+them read as one material. Which sheet a shape gets is still driven by the
+zoning and accent-quota decisions upstream.
 
 ### Color Zoning
 

@@ -651,6 +651,12 @@ export function renderHashArt(
   const shapesPerLayer =
     finalConfig.shapesPerLayer || Math.floor(gridSize * gridSize * 1.5);
 
+  // Opaque figure/ground: shapes occlude one another instead of compositing
+  // as translucent washes. Touches alpha, blend mode, render style, depth
+  // fade and shadow throw — every place the pipeline assumes it can see
+  // through a shape.
+  const isOpaque = archetype.opaqueForeground === true;
+
   const colorScheme = new SacredColorScheme(gitHash);
   const colors = colorScheme.getColorsByMode(archetype.paletteMode);
   const [paletteBgStart, paletteBgEnd] = colorScheme.getBackgroundColorsByMode(
@@ -689,6 +695,37 @@ export function renderHashArt(
         0.18,
       ),
     };
+  }
+
+  // ── Paper stock — a limited set of flat sheets for opaque archetypes ──
+  // Translucent work can afford per-shape HSL jitter: the washes average out
+  // and the variation reads as depth. Opaque planes don't average — every
+  // shape keeps its exact colour, so jitter yields dozens of different
+  // near-identical flats and the image turns to mush. A collagist works from
+  // a handful of sheets, and re-using the *same* colour across several
+  // shapes is what makes them read as one material.
+  //
+  // Values are spread deliberately so adjacent planes separate by value and
+  // not only by hue — hue alone disappears at a glance.
+  const paperStock: string[] = [];
+  if (isOpaque) {
+    const seeds = [
+      colorHierarchy.dominant,
+      colorHierarchy.secondary,
+      colorHierarchy.accent,
+    ];
+    const dir = archetype.backgroundStyle.includes("light") ? -1 : 1;
+    const steps = [0.04, 0.2, 0.36];
+    for (let i = 0; i < seeds.length; i++) {
+      for (let v = 0; v < 2; v++) {
+        paperStock.push(
+          adjustSaturation(
+            adjustLightness(seeds[i], dir * steps[(i + v * 2) % steps.length]),
+            0.14 - v * 0.06,
+          ),
+        );
+      }
+    }
   }
 
   // ── 0c. Shape palette — curated shapes that work well together ──
@@ -1499,9 +1536,12 @@ export function renderHashArt(
       bgLum > 0.75 ? Math.min(1, layerOpacityRaw * 1.35) : layerOpacityRaw;
     const layerSizeScale = 1 - layer * 0.15;
 
-    // Per-layer blend mode — restricted to modes that suit the background
+    // Per-layer blend mode — restricted to modes that suit the background.
+    // Opaque archetypes always composite source-over: multiply/screen on a
+    // fully opaque fill is just a colour shift, and it destroys the flat
+    // planes the mode exists to produce.
     const layerBlend = pickBlendMode(rng, bgLum);
-    ctx.globalCompositeOperation = layerBlend;
+    ctx.globalCompositeOperation = isOpaque ? "source-over" : layerBlend;
 
     // Per-layer render style bias — prefer archetype styles
     const layerRenderStyle: RenderStyle =
@@ -1704,9 +1744,13 @@ export function renderHashArt(
       // Semi-transparent fill — larger shapes quieter, small shapes denser.
       // Light backgrounds get a floor bump so washes don't disappear.
       const alphaBoost = bgLum > 0.75 ? 0.14 : bgLum > 0.6 ? 0.08 : 0;
-      let fillAlpha =
-        (sizeNorm > 0.55 ? 0.16 + rng() * 0.3 : 0.3 + rng() * 0.42) +
-        alphaBoost;
+      // Opaque archetypes keep a hair of variance so planes are not
+      // mathematically flat, but stay far above the range where the shape
+      // underneath starts showing through.
+      let fillAlpha = isOpaque
+        ? 0.96 + rng() * 0.04
+        : (sizeNorm > 0.55 ? 0.16 + rng() * 0.3 : 0.3 + rng() * 0.42) +
+          alphaBoost;
 
       // A mark's *perceived* contrast is its colour contrast scaled by the
       // alpha it is painted at: a 30%-alpha wash delivers under a third of
@@ -1721,11 +1765,23 @@ export function renderHashArt(
         contrastFloorFor(bgLum) * alphaCompensation,
       );
 
-      const fillColor = enforceContrast(
-        jitterColorHSL(fillBase, rng, 6, 0.05),
-        bgLum,
-        markContrast,
-      );
+      // Opaque planes snap to the paper stock; translucent ones jitter.
+      // The stock entry is chosen by the colour the pipeline already picked,
+      // so zoning and accent-quota decisions still drive which sheet is used.
+      const fillColor = isOpaque
+        ? paperStock[
+            Math.min(
+              paperStock.length - 1,
+              Math.floor(
+                (isAccentMark ? 4 : inSecondaryZone(x, y) ? 2 : 0) + rng() * 2,
+              ),
+            )
+          ]
+        : enforceContrast(
+            jitterColorHSL(fillBase, rng, 6, 0.05),
+            bgLum,
+            markContrast,
+          );
       const strokeColor = enforceContrast(
         jitterColorHSL(strokeBase, rng, 5, 0.04),
         bgLum,
@@ -1733,7 +1789,14 @@ export function renderHashArt(
       );
       // Large near-black masses on light backgrounds read as glitches —
       // keep dark accents but thin them so they punctuate, not dominate
-      if (bgLum > 0.6 && sizeNorm > 0.3 && luminance(fillColor) < 0.12) {
+      // Not applied to opaque archetypes: there a large dark plane is a
+      // deliberate flat mass, and thinning it reintroduces the haze.
+      if (
+        !isOpaque &&
+        bgLum > 0.6 &&
+        sizeNorm > 0.3 &&
+        luminance(fillColor) < 0.12
+      ) {
         fillAlpha *= 0.6;
       }
       const transparentFill = hexWithAlpha(fillColor, fillAlpha);
@@ -1750,8 +1813,12 @@ export function renderHashArt(
       // consuming a full placement. Floor the product instead of the
       // individual terms so shapes stay legible while preserving the
       // intended fade/quiet effects.
-      const dofOpacityScale = 1 - dofContrastReduction;
-      const layerAlpha = layerOpacity * dofOpacityScale;
+      // Opaque archetypes skip the depth fade entirely — atmospheric
+      // perspective is a translucency effect, and applying it would reopen
+      // the transparency the mode exists to remove. Depth comes from
+      // occlusion order and drop shadows instead.
+      const dofOpacityScale = isOpaque ? 1 : 1 - dofContrastReduction;
+      const layerAlpha = isOpaque ? 1 : layerOpacity * dofOpacityScale;
       const MIN_EFFECTIVE_ALPHA = 0.16;
       const effectiveAlpha = layerAlpha * fillAlpha;
       ctx.globalAlpha =
@@ -1767,7 +1834,9 @@ export function renderHashArt(
       const glowRadius = hasGlow ? (8 + rng() * 20) * scaleFactor : 0;
 
       // Gradient fill on ~30%
-      const hasGradient = rng() < 0.3;
+      // Never on opaque planes: a gradient is the one thing that stops a
+      // shape reading as flat colour.
+      const hasGradient = rng() < 0.3 && !isOpaque;
       const gradientEnd = hasGradient
         ? jitterColorHSL(pickHierarchyColor(colorHierarchy, rng), rng, 10, 0.1)
         : undefined;
@@ -1785,6 +1854,25 @@ export function renderHashArt(
       let finalRenderStyle = useOrganicEdges
         ? ("watercolor" as RenderStyle)
         : shapeRenderStyle;
+
+      // Opaque archetypes are restricted to styles that lay down a solid
+      // shape. Every style outside this set works by *not* covering the
+      // pixels underneath — watercolor stacks translucent passes, stipple
+      // and hatched fill with texture rather than colour, stroke-only draws
+      // no fill at all — so allowing them would reintroduce the haze one
+      // shape at a time. `hand-drawn` survives because it wobbles the
+      // outline of a still-solid fill, which is the torn-edge quality
+      // paper-cut wants.
+      if (isOpaque) {
+        const SOLID_STYLES: RenderStyle[] = [
+          "fill-and-stroke",
+          "fill-only",
+          "hand-drawn",
+        ];
+        if (!SOLID_STYLES.includes(finalRenderStyle)) {
+          finalRenderStyle = rng() < 0.75 ? "fill-and-stroke" : "fill-only";
+        }
+      }
 
       // Budget check: downgrade expensive styles proportionally —
       // the more expensive the style, the earlier it gets downgraded.
@@ -1821,7 +1909,9 @@ export function renderHashArt(
       }
 
       // Consistent light direction — subtle shadow offset
-      const shadowDist = hasGlow ? 0 : size * 0.02;
+      // Opaque shapes get a longer throw: with no translucency to suggest
+      // depth, the cast shadow is what lifts a plane off the one beneath it.
+      const shadowDist = hasGlow ? 0 : size * (isOpaque ? 0.055 : 0.02);
       const shadowOffX = shadowDist * Math.cos(lightAngle);
       const shadowOffY = shadowDist * Math.sin(lightAngle);
 
@@ -1877,7 +1967,9 @@ export function renderHashArt(
         glowColor: hasGlow
           ? hexWithAlpha(fillColor, 0.6)
           : shadowDist > 0
-            ? "rgba(0,0,0,0.08)"
+            ? isOpaque
+              ? "rgba(0,0,0,0.2)"
+              : "rgba(0,0,0,0.08)"
             : undefined,
         gradientFillEnd: gradientEnd,
         renderStyle: finalRenderStyle,
@@ -1905,7 +1997,9 @@ export function renderHashArt(
       // ── Glazing — luminous multi-pass transparency on ~20% of shapes ──
       if (rng() < 0.2 * extrasScale && size > adjustedMinSize * 2) {
         const glazePasses = 2 + Math.floor(rng() * 2);
-        if (extrasAllowed) {
+        // Glazing is literally stacked translucent passes. The roll above is
+        // still consumed so the RNG stream stays aligned.
+        if (extrasAllowed && !isOpaque) {
           for (let g = 0; g < glazePasses; g++) {
             const glazeScale = 1 - (g + 1) * 0.12;
             const glazeAlpha = 0.08 + g * 0.04;
@@ -1945,7 +2039,7 @@ export function renderHashArt(
             if (echoX < 0 || echoX > width || echoY < 0 || echoY > height)
               continue;
 
-            ctx.globalAlpha = layerOpacity * (0.4 - e * 0.1);
+            ctx.globalAlpha = isOpaque ? 1 : layerOpacity * (0.4 - e * 0.1);
             enhanceShapeGeneration(ctx, shape, echoX, echoY, {
               fillColor: hexWithAlpha(fillColor, fillAlpha * 0.6),
               strokeColor: hexWithAlpha(strokeColor, 0.4),
@@ -2008,7 +2102,7 @@ export function renderHashArt(
             }
             if (innerStyle === "stipple" || innerStyle === "noise-grain")
               clipHeavyCount++;
-            ctx.globalAlpha = layerOpacity * 0.7;
+            ctx.globalAlpha = isOpaque ? 1 : layerOpacity * 0.7;
             enhanceShapeGeneration(
               ctx,
               innerShape,
@@ -2076,7 +2170,7 @@ export function renderHashArt(
               bgLum,
             );
 
-            ctx.globalAlpha = layerOpacity * 0.6;
+            ctx.globalAlpha = isOpaque ? 1 : layerOpacity * 0.6;
             // Use the member's shape if available, otherwise fall back to palette
             const memberShape = shapeNames.includes(member.shape)
               ? member.shape

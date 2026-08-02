@@ -8,6 +8,7 @@ Works in both Node.js and browser environments.
 
 - Deterministic output — same hash always produces the same image
 - Hash-driven color palettes — 6 variation modes × 5 scheme types for dramatic palette diversity
+- Opaque cut-paper archetypes — `collage`, `paper-cut` and `hard-edge` render fully opaque so shapes occlude one another, giving crisp figure/ground and flat colour planes instead of translucent haze
 - Color zoning — a low-frequency field splits the canvas into two color passages so large masses carry genuinely different hues
 - Guaranteed accent contrast — degenerate single-hue palettes get a synthesized split-complementary accent, and a protected minority of marks stay at full chroma
 - Alpha-aware contrast enforcement — shape colors are pushed away from the background by enough to survive the transparency they're painted at
@@ -160,6 +161,8 @@ renderHashArt(ctx, '46192e59d42f741c761cbea79462a8b3815dd905', {
 ## Shape Categories
 
 Shapes are selected with layer-aware weighting — early layers favor simple shapes for background texture, later layers favor intricate ones for foreground detail.
+
+Opaque archetypes draw from a limited "paper stock" of flat sheets rather than jittering every shape's colour, so planes read as one material.
 
 **Basic** — circle, square, triangle, hexagon, star, diamond, cube, heart
 

@@ -74,6 +74,16 @@ export interface Archetype {
   sizePower: number;
   /** Whether to invert colors (light shapes on dark, or dark on light) */
   invertForeground: boolean;
+  /**
+   * Render foreground shapes fully opaque so they occlude one another,
+   * instead of compositing as translucent washes.
+   *
+   * Every other archetype tops out around 0.7 effective alpha, so no shape
+   * ever fully hides another and the image reads as haze at any density.
+   * Opaque archetypes get crisp figure/ground, depth by overlap, and real
+   * silhouettes — cut paper rather than watercolour. Defaults to false.
+   */
+  opaqueForeground?: boolean;
 }
 
 // ── Archetype definitions ───────────────────────────────────────────
@@ -278,11 +288,13 @@ const ARCHETYPES: Archetype[] = [
     invertForeground: false,
   },
   {
+    // The name always promised cut paper; translucency was what stopped it
+    // reading that way.
     name: "collage",
-    gridSize: 4,
-    layers: 3,
-    baseOpacity: 0.9,
-    opacityReduction: 0.08,
+    gridSize: 3,
+    layers: 2,
+    baseOpacity: 1,
+    opacityReduction: 0,
     minShapeSize: 80,
     maxShapeSize: 500,
     backgroundStyle: "solid-light",
@@ -294,6 +306,48 @@ const ARCHETYPES: Archetype[] = [
     glowMultiplier: 0,
     sizePower: 0.7,
     invertForeground: false,
+    opaqueForeground: true,
+  },
+  {
+    // Torn-paper collage: a few flat colours, generous scale, shapes that
+    // sit on top of each other rather than blending through.
+    name: "paper-cut",
+    gridSize: 3,
+    layers: 2,
+    baseOpacity: 1,
+    opacityReduction: 0,
+    minShapeSize: 70,
+    maxShapeSize: 430,
+    backgroundStyle: "solid-light",
+    paletteMode: "limited-palette",
+    preferredStyles: ["fill-only", "fill-and-stroke", "hand-drawn"],
+    preferredCompositions: ["clustered", "grid-subdivision", "golden-spiral"],
+    flowLineMultiplier: 0,
+    heroShape: true,
+    glowMultiplier: 0,
+    sizePower: 0.9,
+    invertForeground: false,
+    opaqueForeground: true,
+  },
+  {
+    // Hard-edge abstraction: few large flat planes, no texture, no haze.
+    name: "hard-edge",
+    gridSize: 3,
+    layers: 2,
+    baseOpacity: 1,
+    opacityReduction: 0,
+    minShapeSize: 110,
+    maxShapeSize: 540,
+    backgroundStyle: "solid-light",
+    paletteMode: "split-complementary",
+    preferredStyles: ["fill-only", "fill-and-stroke"],
+    preferredCompositions: ["grid-subdivision", "golden-spiral", "clustered"],
+    flowLineMultiplier: 0,
+    heroShape: true,
+    glowMultiplier: 0,
+    sizePower: 0.7,
+    invertForeground: false,
+    opaqueForeground: true,
   },
   {
     name: "classic",
@@ -424,6 +478,9 @@ function blendArchetypes(a: Archetype, b: Archetype, t: number): Archetype {
     glowMultiplier: lerpNum(a.glowMultiplier, b.glowMultiplier, t),
     sizePower: lerpNum(a.sizePower, b.sizePower, t),
     invertForeground: t < 0.5 ? a.invertForeground : b.invertForeground,
+    // Opacity is not a blendable quantity here — a half-opaque foreground is
+    // just the translucent look again. Take the dominant archetype's mode.
+    opaqueForeground: t < 0.5 ? a.opaqueForeground : b.opaqueForeground,
   };
 }
 
