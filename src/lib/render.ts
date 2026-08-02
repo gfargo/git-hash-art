@@ -34,6 +34,7 @@ import {
   adjustSaturation,
   adjustLightness,
   hueRotate,
+  mixColor,
   toGroundValue,
   paletteHueSpan,
   buildColorHierarchy,
@@ -59,6 +60,12 @@ import {
   pickStyleForShape,
   SHAPE_PROFILES,
 } from "./canvas/shapes/affinity";
+import {
+  computeAttractorField,
+  paintAttractorField,
+  sampleField,
+  type AttractorField,
+} from "./canvas/attractor";
 import {
   createRng,
   seedFromHash,
@@ -369,6 +376,46 @@ function resolveBackgroundColors(
     ];
   }
   return [bgStart, bgEnd];
+}
+
+/**
+ * Build a smooth density→(colour, alpha) ramp for the attractor substrate.
+ *
+ * `tailCut` drops the sparsest cells — that tail is a scatter of isolated
+ * hits, and at any alpha it reads as sensor noise rather than structure.
+ * The underlay keeps the full ramp; the re-assertion pass over the top
+ * takes only the spines, so it laces through the shapes without fogging
+ * the whole image a second time.
+ */
+function buildAttractorBands(
+  veil: string,
+  spine: string,
+  strength: number,
+  /** 0 = keep the full ramp, 1 = densest spines only. */
+  tailCut: number,
+): Array<{ min: number; max: number; fill: string; alpha: number }> {
+  const BANDS = 8;
+  const lo = 0.1 + tailCut * 0.42;
+  const bands: Array<{
+    min: number;
+    max: number;
+    fill: string;
+    alpha: number;
+  }> = [];
+  for (let i = 0; i < BANDS; i++) {
+    const t0 = lo + ((1 - lo) * i) / BANDS;
+    const t1 = lo + ((1 - lo) * (i + 1)) / BANDS;
+    const mid = (i + 0.5) / BANDS;
+    bands.push({
+      min: t0,
+      max: i === BANDS - 1 ? 1.01 : t1,
+      fill: mixColor(veil, spine, mid),
+      // Superlinear so the dense spines carry the image and the veils stay
+      // atmospheric instead of every band arriving at once.
+      alpha: Math.pow(mid, 1.5) * 0.95 * strength,
+    });
+  }
+  return bands;
 }
 
 // ── Helper: draw background based on archetype style ────────────────
@@ -932,6 +979,68 @@ export function renderHashArt(
   }
   ctx.globalCompositeOperation = "source-over";
 
+  // ── 1d. Attractor substrate — emergent structure under the layers ──
+  // The shape layers can only assemble complexity out of parts someone
+  // drew. An attractor orbit produces filigree far finer than the shape
+  // vocabulary can build, and with no silhouette to read as anything.
+  // Underlaying it — rather than making it the subject — keeps the
+  // project's layered character while giving the composition a structure
+  // it did not author.
+  //
+  // Field resolution is fixed rather than tied to canvas size so cost and
+  // appearance stay stable across a 512px thumbnail and a 2048px print.
+  let attractorField: AttractorField | null = null;
+  let attractorStrength = 0;
+  let attractorVeil = "";
+  let attractorSpine = "";
+  // Roughly half of hashes ask for a substrate; a little under half of
+  // those produce a viable orbit (most parameter draws collapse to a point,
+  // a hairline, or diverge), so this lands near a third of all images —
+  // frequent enough to read as part of the vocabulary, rare enough to stay
+  // an event.
+  const wantsAttractor = rng() < 0.62;
+  if (wantsAttractor) {
+    const fieldRes = 288;
+    attractorField = computeAttractorField(
+      createRng(seedFromHash(gitHash, 8171)),
+      fieldRes,
+      fieldRes,
+      260000,
+    );
+  }
+
+  if (attractorField) {
+    ctx.save();
+    ctx.globalCompositeOperation = "source-over";
+    const dark = bgLum <= 0.5;
+    // Bands run thin-veil → dense-spine. On a dark ground the spines
+    // brighten toward the accent; on a light ground they deepen toward it,
+    // so the substrate reads as structure either way rather than as fog.
+    const veil = dark
+      ? adjustLightness(colorHierarchy.secondary, 0.1)
+      : adjustLightness(colorHierarchy.secondary, -0.12);
+    const spine = dark
+      ? adjustLightness(adjustSaturation(colorHierarchy.accent, 0.1), 0.3)
+      : adjustLightness(adjustSaturation(colorHierarchy.accent, 0.1), -0.34);
+    attractorStrength = 0.6 + rng() * 0.4;
+    // Four hard bands made the quantisation visible: the sparse tail
+    // rendered as discrete specks and read as dirt on the lens rather than
+    // as filigree. A finer ramp with alpha rising smoothly across it hides
+    // the banding, and cutting the sparsest cells removes the speckle at
+    // its source. Eight fills is trivial next to the shape layers.
+    paintAttractorField(
+      ctx,
+      attractorField,
+      width,
+      height,
+      buildAttractorBands(veil, spine, attractorStrength, 0),
+    );
+    attractorVeil = veil;
+    attractorSpine = spine;
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   _mark("1_background");
 
   // ── 2. Composition mode — archetype-aware selection ──────────────
@@ -1488,7 +1597,13 @@ export function renderHashArt(
 
   for (let layer = 0; layer < layers; layer++) {
     const layerRatio = layers > 1 ? layer / (layers - 1) : 0;
-    const numShapes = shapesPerLayer + Math.floor(rng() * shapesPerLayer * 0.3);
+    // With a substrate present the image already carries structure, so the
+    // shape layer steps back — at full density it simply buries the field
+    // and the two halves stop reading as one picture.
+    const shapeBudget = attractorField
+      ? Math.max(3, Math.round(shapesPerLayer * 0.6))
+      : shapesPerLayer;
+    const numShapes = shapeBudget + Math.floor(rng() * shapeBudget * 0.3);
     // Very light backgrounds swallow low-opacity washes — lift the whole
     // layer so soft archetypes (ethereal, pastel) still register.
     const layerOpacityRaw = Math.max(
@@ -1551,6 +1666,17 @@ export function renderHashArt(
         anchorY,
       );
       const [x, y] = applyFocalBias(rawPos.x, rawPos.y);
+
+      // Substrate affinity — when an attractor is present, shapes settle
+      // along its spines instead of ignoring it. This is the half that
+      // makes the hybrid worth having: without it the field is wallpaper
+      // behind an unrelated composition, and the image reads as two
+      // pictures stacked. Kept partial so the shape layer still breathes
+      // into the empty regions rather than tracing the orbit exactly.
+      if (attractorField) {
+        const f = sampleField(attractorField, x, y, width, height);
+        if (f < 0.1 && rng() < 0.55) continue;
+      }
 
       // Skip shapes in void zones, reduce in dense areas
       if (isInVoidZone(x, y, voidZones)) {
@@ -2606,6 +2732,32 @@ export function renderHashArt(
     ctx.globalAlpha = alpha;
     ctx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
     ctx.fillRect(nx, ny, pixelScale, pixelScale);
+  }
+
+  // ── 6d. Substrate re-assertion ──────────────────────────────────
+  // Underlaying alone leaves the field as wallpaper: the shape layers
+  // cover it and the structure stops participating. A second, much
+  // fainter pass of only the densest bands over the top laces the spines
+  // back through the shapes, which is what makes the two halves read as
+  // a single image rather than two stacked ones.
+  if (attractorField) {
+    ctx.save();
+    ctx.globalCompositeOperation = bgLum > 0.5 ? "multiply" : "screen";
+    paintAttractorField(
+      ctx,
+      attractorField,
+      width,
+      height,
+      buildAttractorBands(
+        attractorVeil,
+        attractorSpine,
+        attractorStrength * 0.4,
+        1,
+      ),
+    );
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
   }
 
   _mark("7_noise_texture");

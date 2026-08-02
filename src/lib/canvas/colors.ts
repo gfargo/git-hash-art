@@ -716,6 +716,15 @@ export function pickColorGrade(rng: () => number): {
 }
 
 /**
+ * Linearly blend two hex colors in RGB. `t` 0 = a, 1 = b.
+ */
+export function mixColor(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = hexToRgb(a);
+  const [r2, g2, b2] = hexToRgb(b);
+  return rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+}
+
+/**
  * Rotate the hue of a hex color by a given number of degrees.
  */
 export function hueRotate(hex: string, degrees: number): string {
