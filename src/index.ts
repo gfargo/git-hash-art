@@ -19,13 +19,21 @@ function generateImageFromHash(
   gitHash: string,
   config: Partial<GenerationConfig> = {},
 ): Buffer {
-  const finalConfig: GenerationConfig = { ...DEFAULT_CONFIG, ...config };
-  const { width, height } = finalConfig;
+  // Only the canvas dimensions are resolved here. Spreading the whole of
+  // DEFAULT_CONFIG into the call would be wrong: `renderHashArt` treats a
+  // present key as an explicit caller override
+  // (`config.gridSize ?? archetype.gridSize`), so forwarding defaults for
+  // gridSize, layers, sizes and opacity silently suppressed every
+  // archetype's own settings for those fields — collapsing 19 rendering
+  // personalities into one. The caller's partial config passes through
+  // untouched.
+  const width = config.width ?? DEFAULT_CONFIG.width;
+  const height = config.height ?? DEFAULT_CONFIG.height;
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
 
-  renderHashArt(ctx, gitHash, finalConfig);
+  renderHashArt(ctx, gitHash, { ...config, width, height });
 
   return canvas.toBuffer("image/png");
 }
